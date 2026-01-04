@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { productsApi, type Product } from '@/lib/api'
+import { useProducts, useUpdateProduct, useDeleteProduct, useParseProduct } from '@/hooks/useProducts'
 import { formatPrice, cn } from '@/lib/utils'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -22,39 +22,41 @@ import {
   Package,
   TrendingUp,
   AlertCircle,
-  Clock,
   CheckCircle2,
   AlertTriangle,
   RefreshCw
 } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { useWebSocket } from '@/hooks/useWebSocket'
+import { useProductsWebSocket } from '@/hooks/useProductsWebSocket'
 
 export default function Products() {
-  const [products, setProducts] = useState<Product[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
+  const queryClient = useQueryClient()
+  const [searchQuery, setSearchQuery] = useState('')
+  const { data: products = [], isLoading, refetch } = useProducts(0, 100, searchQuery || undefined)
+  const updateProduct = useUpdateProduct()
+  const deleteProduct = useDeleteProduct()
+  const parseProduct = useParseProduct()
+  
+  const [editingProduct, setEditingProduct] = useState<any>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
-  const [isSaving, setIsSaving] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
-  const [isParsing, setIsParsing] = useState<Record<number, boolean>>({})
   const [editForm, setEditForm] = useState({ name: '', category: '' })
+  const [activeParseJobId, setActiveParseJobId] = useState<number | null>(null)
 
-  useEffect(() => {
-    loadProducts()
-  }, [])
+  useProductsWebSocket()
 
-  const loadProducts = async () => {
-    try {
-      setIsLoading(true)
-      const data = await productsApi.list()
-      setProducts(data)
-    } catch (error) {
-      console.error('Failed to load products:', error)
-    } finally {
-      setIsLoading(false)
+  const handleWebSocketMessage = (message: any) => {
+    if (message.type === 'status_update') {
+      if (message.status === 'completed' || message.status === 'failed') {
+        queryClient.invalidateQueries({ queryKey: ['products'] })
+        setActiveParseJobId(null)
+      }
     }
   }
 
-  const handleEdit = (product: Product) => {
+  useWebSocket(activeParseJobId, handleWebSocketMessage)
+
+  const handleEdit = (product: any) => {
     setEditingProduct(product)
     setEditForm({
       name: product.name || '',
@@ -64,35 +66,19 @@ export default function Products() {
 
   const handleSave = async () => {
     if (!editingProduct) return
-
-    try {
-      setIsSaving(true)
-      await productsApi.update(editingProduct.id, {
+    updateProduct.mutate({
+      id: editingProduct.id,
+      data: {
         name: editForm.name || undefined,
         category: editForm.category || undefined,
-      })
-      await loadProducts()
-      setEditingProduct(null)
-    } catch (error) {
-      console.error('Failed to update product:', error)
-      alert('Ошибка при обновлении товара')
-    } finally {
-      setIsSaving(false)
-    }
+      }
+    })
+    setEditingProduct(null)
   }
 
   const handleDelete = async (productId: number) => {
-    try {
-      setIsDeleting(true)
-      await productsApi.delete(productId)
-      await loadProducts()
-      setDeleteConfirm(null)
-    } catch (error) {
-      console.error('Failed to delete product:', error)
-      alert('Ошибка при удалении товара')
-    } finally {
-      setIsDeleting(false)
-    }
+    deleteProduct.mutate(productId)
+    setDeleteConfirm(null)
   }
 
   const getDataFreshness = (lastParsedAt: string | null) => {
@@ -128,16 +114,12 @@ export default function Products() {
 
   const handleParse = async (productId: number) => {
     try {
-      setIsParsing(prev => ({ ...prev, [productId]: true }))
-      await productsApi.parse(productId)
-      setTimeout(async () => {
-        await loadProducts()
-        setIsParsing(prev => ({ ...prev, [productId]: false }))
-      }, 2000)
+      const job = await parseProduct.mutateAsync(productId)
+      if (job?.id) {
+        setActiveParseJobId(job.id)
+      }
     } catch (error) {
       console.error('Failed to parse product:', error)
-      alert('Ошибка при парсинге товара')
-      setIsParsing(prev => ({ ...prev, [productId]: false }))
     }
   }
 
@@ -154,205 +136,203 @@ export default function Products() {
 
   return (
     <div className="space-y-6 animate-in fade-in-50 duration-500">
-      <div className="space-y-2">
-        <h2 className="text-3xl font-bold tracking-tight">Товары</h2>
-        <p className="text-muted-foreground">
-          Список всех отслеживаемых товаров
-        </p>
+      <div className="flex items-center justify-between">
+        <div className="space-y-2">
+          <h2 className="text-3xl font-bold tracking-tight">Товары</h2>
+          <p className="text-muted-foreground">
+            Список всех отслеживаемых товаров
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Input
+            placeholder="Поиск по названию или категории..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-64"
+          />
+          <Button onClick={() => refetch()} variant="outline" size="icon">
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {products.map((product, index) => (
-          <Card 
-            key={product.id}
-            className="group hover:shadow-lg transition-all duration-300 animate-in fade-in slide-in-from-bottom-4"
-            style={{ animationDelay: `${index * 50}ms` }}
-          >
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 min-w-0">
-                  <CardTitle className="line-clamp-2 text-lg group-hover:text-primary transition-colors">
-                    {product.name || `Товар #${product.kaspi_id}`}
-                  </CardTitle>
-                  <CardDescription className="mt-1 flex items-center gap-1">
-                    <Package className="h-3 w-3" />
-                    {product.category || 'Без категории'}
-                  </CardDescription>
-                </div>
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => handleEdit(product)}
-                  >
-                    <Edit2 className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-destructive hover:text-destructive"
-                    onClick={() => setDeleteConfirm(product.id)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Предложений</p>
-                    <p className="text-xl font-semibold">{product.offers.length}</p>
-                  </div>
-                  {product.offers.length > 0 && (
-                    <div className="text-right">
-                      <p className="text-xs text-muted-foreground mb-1">Диапазон цен</p>
-                      <div className="flex items-center gap-1 text-sm font-medium">
-                        <TrendingUp className="h-3 w-3 text-green-600" />
-                        <span className="text-green-600">
-                          {formatPrice(Math.min(...product.offers.map(o => o.price)))}
-                        </span>
-                        <span className="text-muted-foreground">-</span>
-                        <span className="text-orange-600">
-                          {formatPrice(Math.max(...product.offers.map(o => o.price)))}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                
-                {product.last_parsed_at && (
-                  <div className="p-3 bg-muted/30 rounded-lg border">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Clock className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                          <p className="text-xs text-muted-foreground">Последний парсинг</p>
-                          <p className="text-sm font-medium">{formatLastParsed(product.last_parsed_at)}</p>
-                        </div>
-                      </div>
-                      {(() => {
-                        const freshness = getDataFreshness(product.last_parsed_at)
-                        const Icon = freshness.icon
-                        return (
-                          <div className={cn("flex items-center gap-1", freshness.color)}>
-                            <Icon className="h-4 w-4" />
-                            <span className="text-xs font-medium">{freshness.text}</span>
-                          </div>
-                        )
-                      })()}
-                    </div>
-                  </div>
-                )}
-                
-                {!product.last_parsed_at && (
-                  <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
-                    <div className="flex items-center gap-2">
-                      <AlertCircle className="h-4 w-4 text-yellow-600" />
-                      <p className="text-xs text-yellow-700 dark:text-yellow-400">
-                        Данные еще не были спарсены
-                      </p>
-                    </div>
-                  </div>
-                )}
-                
-                <div className="flex gap-2">
-                  <Button
-                    variant="default"
-                    className="flex-1"
-                    onClick={() => handleParse(product.id)}
-                    disabled={isParsing[product.id]}
-                  >
-                    {isParsing[product.id] ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Парсинг...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="mr-2 h-4 w-4" />
-                        Обновить данные
-                      </>
-                    )}
-                  </Button>
-                  <Link to={`/analytics?product=${product.id}`} className="flex-1">
-                    <Button variant="outline" className="w-full group/btn">
-                      Аналитика
-                      <ExternalLink className="ml-2 h-4 w-4 transition-transform group-hover/btn:translate-x-1" />
-                    </Button>
-                  </Link>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {products.length === 0 && (
-        <Card className="animate-in fade-in slide-in-from-bottom-4">
-          <CardContent className="py-16 text-center">
-            <div className="flex flex-col items-center gap-4">
-              <div className="rounded-full bg-muted p-4">
-                <Package className="h-8 w-8 text-muted-foreground" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold mb-1">Нет товаров</h3>
-                <p className="text-muted-foreground mb-4">
-                  Начните отслеживать товары, добавив первый товар
-                </p>
-                <Link to="/">
-                  <Button>
-                    Добавить товар
-                  </Button>
-                </Link>
-              </div>
-            </div>
+      {products.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Package className="h-12 w-12 text-muted-foreground mb-4" />
+            <p className="text-muted-foreground">
+              {searchQuery ? 'Товары не найдены' : 'Нет товаров. Добавьте первый товар на главной странице.'}
+            </p>
           </CardContent>
         </Card>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {products.map((product: any) => {
+            const freshness = getDataFreshness(product.last_parsed_at)
+            const FreshnessIcon = freshness.icon
+            const minPrice = product.offers && product.offers.length > 0 
+              ? Math.min(...product.offers.map((o: any) => o.price))
+              : null
+            const isParsing = activeParseJobId !== null
+
+            return (
+              <Card 
+                key={product.id}
+                className="group hover:shadow-lg transition-all duration-300"
+              >
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <CardTitle className="line-clamp-2 text-lg group-hover:text-primary transition-colors">
+                        {product.name || `Товар #${product.kaspi_id}`}
+                      </CardTitle>
+                      {product.category && (
+                        <CardDescription className="mt-1 line-clamp-1">
+                          {product.category}
+                        </CardDescription>
+                      )}
+                    </div>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleEdit(product)}
+                        className="h-8 w-8"
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setDeleteConfirm(product.id)}
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <FreshnessIcon className={cn("h-4 w-4", freshness.color)} />
+                      <span className={cn("text-sm", freshness.color)}>
+                        {freshness.text}
+                      </span>
+                    </div>
+                    {minPrice && (
+                      <div className="flex items-center gap-1 text-lg font-bold">
+                        <TrendingUp className="h-4 w-4 text-green-600" />
+                        {formatPrice(minPrice)}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <div className="flex justify-between">
+                      <span>Kaspi ID:</span>
+                      <span className="font-mono">{product.kaspi_id}</span>
+                    </div>
+                    {product.last_parsed_at && (
+                      <div className="flex justify-between">
+                        <span>Обновлен:</span>
+                        <span>{formatLastParsed(product.last_parsed_at)}</span>
+                      </div>
+                    )}
+                    {product.offers && product.offers.length > 0 && (
+                      <div className="flex justify-between">
+                        <span>Предложений:</span>
+                        <span>{product.offers.length}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => handleParse(product.id)}
+                      disabled={isParsing}
+                    >
+                      {isParsing ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Парсинг...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                          Обновить
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      asChild
+                    >
+                      <Link to={`/analytics?product=${product.id}`}>
+                        Аналитика
+                      </Link>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      asChild
+                    >
+                      <a
+                        href={`https://kaspi.kz/shop/p/product/${product.kaspi_id}/`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
       )}
 
       <Dialog open={!!editingProduct} onOpenChange={(open) => !open && setEditingProduct(null)}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Редактировать товар</DialogTitle>
             <DialogDescription>
-              Измените название и категорию товара. Нажмите сохранить когда закончите.
+              Измените название или категорию товара
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="name">Название</Label>
+          <div className="space-y-4 py-4">
+            <div>
+              <Label htmlFor="edit-name">Название</Label>
               <Input
-                id="name"
+                id="edit-name"
                 value={editForm.name}
                 onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                placeholder="Введите название товара"
+                placeholder="Название товара"
               />
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="category">Категория</Label>
+            <div>
+              <Label htmlFor="edit-category">Категория</Label>
               <Input
-                id="category"
+                id="edit-category"
                 value={editForm.category}
                 onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
-                placeholder="Введите категорию"
+                placeholder="Категория товара"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setEditingProduct(null)}
-              disabled={isSaving}
-            >
+            <Button variant="outline" onClick={() => setEditingProduct(null)}>
               Отмена
             </Button>
-            <Button onClick={handleSave} disabled={isSaving}>
-              {isSaving ? (
+            <Button onClick={handleSave} disabled={updateProduct.isPending}>
+              {updateProduct.isPending ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   Сохранение...
                 </>
               ) : (
@@ -364,40 +344,29 @@ export default function Products() {
       </Dialog>
 
       <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-destructive" />
-              Подтвердите удаление
-            </DialogTitle>
+            <DialogTitle>Подтвердите удаление</DialogTitle>
             <DialogDescription>
               Вы уверены, что хотите удалить этот товар? Это действие нельзя отменить.
-              Все связанные данные (предложения, история цен, аналитика) также будут удалены.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDeleteConfirm(null)}
-              disabled={isDeleting}
-            >
+            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
               Отмена
             </Button>
             <Button
               variant="destructive"
               onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
-              disabled={isDeleting}
+              disabled={deleteProduct.isPending}
             >
-              {isDeleting ? (
+              {deleteProduct.isPending ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   Удаление...
                 </>
               ) : (
-                <>
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Удалить
-                </>
+                'Удалить'
               )}
             </Button>
           </DialogFooter>

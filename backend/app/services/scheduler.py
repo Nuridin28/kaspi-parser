@@ -21,14 +21,28 @@ async def daily_price_update():
     db = SessionLocal()
     try:
         products = db.query(Product).all()
+        updated_products = []
         
         for product in products:
             try:
-                await ProductService.parse_and_save_product(f"https://kaspi.kz/shop/p/product/{product.kaspi_id}/", None, db)
+                updated_product = await ProductService.parse_and_save_product(
+                    f"https://kaspi.kz/shop/p/product/{product.kaspi_id}/", 
+                    None, 
+                    db
+                )
+                updated_products.append(updated_product.id)
             except Exception as e:
                 print(f"Error updating product {product.id}: {e}")
                 db.rollback()
                 continue
+        
+        if updated_products:
+            from app.api.v1.websocket import manager
+            await manager.broadcast_to_all({
+                "type": "products_updated",
+                "product_ids": updated_products,
+                "message": f"Обновлено {len(updated_products)} товаров"
+            })
     finally:
         db.close()
 

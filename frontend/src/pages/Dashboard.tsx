@@ -1,63 +1,51 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { productsApi, jobsApi, type Job } from '@/lib/api'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { jobsApi } from '@/lib/api'
 import { Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react'
 import { useWebSocket } from '@/hooks/useWebSocket'
+import { useCreateProduct, useCreateProductsBulk } from '@/hooks/useProducts'
+import { useProductsWebSocket } from '@/hooks/useProductsWebSocket'
 
 export default function Dashboard() {
+  const queryClient = useQueryClient()
   const [url, setUrl] = useState('')
   const [bulkUrls, setBulkUrls] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
-  const [recentJobs, setRecentJobs] = useState<Job[]>([])
   const [activeJobId, setActiveJobId] = useState<number | null>(null)
+  
+  const { data: recentJobs = [], isLoading: isLoadingJobs } = useQuery({
+    queryKey: ['jobs', 0, 10],
+    queryFn: () => jobsApi.list(0, 10),
+    refetchInterval: 5000,
+  })
 
-  useEffect(() => {
-    loadRecentJobs()
-    const interval = setInterval(loadRecentJobs, 5000)
-    return () => clearInterval(interval)
-  }, [])
+  const createProduct = useCreateProduct()
+  const createProductsBulk = useCreateProductsBulk()
+
+  useProductsWebSocket()
 
   const handleWebSocketMessage = (message: any) => {
     if (message.type === 'status_update') {
-      setRecentJobs(prev => prev.map(job => 
-        job.id === message.job_id 
-          ? { ...job, status: message.status }
-          : job
-      ))
+      queryClient.invalidateQueries({ queryKey: ['jobs'] })
       if (message.status === 'completed' || message.status === 'failed') {
         setActiveJobId(null)
-        loadRecentJobs()
+        queryClient.invalidateQueries({ queryKey: ['products'] })
       }
     }
   }
 
   useWebSocket(activeJobId, handleWebSocketMessage)
 
-  const loadRecentJobs = async () => {
-    try {
-      const jobs = await jobsApi.list(0, 10)
-      setRecentJobs(jobs)
-    } catch (error) {
-      console.error('Failed to load jobs:', error)
-    }
-  }
-
   const handleAddProduct = async () => {
     if (!url.trim()) return
-
-    setIsLoading(true)
     try {
-      const job = await productsApi.create(url)
+      const job = await createProduct.mutateAsync(url)
       setUrl('')
       setActiveJobId(job.id)
-      await loadRecentJobs()
     } catch (error) {
       console.error('Failed to add product:', error)
-      alert('Ошибка при добавлении товара')
-    } finally {
-      setIsLoading(false)
     }
   }
 
@@ -71,16 +59,14 @@ export default function Dashboard() {
 
     if (urls.length === 0) return
 
-    setIsLoading(true)
     try {
-      await productsApi.createBulk(urls)
+      const jobs = await createProductsBulk.mutateAsync(urls)
       setBulkUrls('')
-      await loadRecentJobs()
+      if (jobs.length > 0) {
+        setActiveJobId(jobs[0].id)
+      }
     } catch (error) {
       console.error('Failed to add products:', error)
-      alert('Ошибка при добавлении товаров')
-    } finally {
-      setIsLoading(false)
     }
   }
 
@@ -121,8 +107,11 @@ export default function Dashboard() {
               onChange={(e) => setUrl(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAddProduct()}
             />
-            <Button onClick={handleAddProduct} disabled={isLoading || !url.trim()}>
-              {isLoading ? (
+            <Button 
+              onClick={handleAddProduct} 
+              disabled={createProduct.isPending || !url.trim()}
+            >
+              {createProduct.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Добавление...
@@ -148,8 +137,11 @@ export default function Dashboard() {
               value={bulkUrls}
               onChange={(e) => setBulkUrls(e.target.value)}
             />
-            <Button onClick={handleBulkAdd} disabled={isLoading || !bulkUrls.trim()}>
-              {isLoading ? (
+            <Button 
+              onClick={handleBulkAdd} 
+              disabled={createProductsBulk.isPending || !bulkUrls.trim()}
+            >
+              {createProductsBulk.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Добавление...
@@ -168,11 +160,15 @@ export default function Dashboard() {
           <CardDescription>Статус парсинга товаров</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            {recentJobs.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Нет задач</p>
-            ) : (
-              recentJobs.map((job) => (
+          {isLoadingJobs ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : recentJobs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Нет задач</p>
+          ) : (
+            <div className="space-y-2">
+              {recentJobs.map((job: any) => (
                 <div
                   key={job.id}
                   className="flex items-center justify-between p-3 border rounded-md"
@@ -188,12 +184,11 @@ export default function Dashboard() {
                   </div>
                   <span className="text-sm capitalize">{job.status}</span>
                 </div>
-              ))
-            )}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
   )
 }
-

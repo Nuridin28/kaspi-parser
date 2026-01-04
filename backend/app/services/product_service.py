@@ -146,8 +146,9 @@ class ProductService:
                     job.kaspi_product_id = kaspi_id
                     job.completed_at = datetime.utcnow()
                     db.commit()
-                    from app.api.v1.websocket import notify_job_status
+                    from app.api.v1.websocket import notify_job_status, notify_product_updated
                     await notify_job_status(job_id, "completed", "Парсинг завершен успешно")
+                    await notify_product_updated(product.id)
             
             return product
             
