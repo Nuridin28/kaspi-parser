@@ -140,6 +140,20 @@ export interface ReportResponse {
   filename: string
 }
 
+export interface ReportFile {
+  name: string
+  size: number
+  last_modified: string | null
+  etag: string
+  url: string
+  filename: string
+}
+
+export interface ReportListResponse {
+  files: ReportFile[]
+  total: number
+}
+
 export const reportsApi = {
   generateProductExcel: async (productId: number): Promise<ReportResponse> => {
     const response = await api.get(`/reports/products/${productId}/excel`, {
@@ -167,6 +181,17 @@ export const reportsApi = {
       params,
     })
     return response.data
+  },
+  
+  listReports: async (prefix?: string, limit?: number): Promise<ReportListResponse> => {
+    const response = await api.get(`/reports/files`, {
+      params: { prefix, limit },
+    })
+    return response.data
+  },
+  
+  deleteReport: async (objectName: string): Promise<void> => {
+    await api.delete(`/reports/files/${objectName}`)
   },
 }
 

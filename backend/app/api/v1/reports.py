@@ -98,3 +98,33 @@ async def generate_advanced_analytics_excel(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating report: {str(e)}")
 
+
+@router.get("/files")
+async def list_reports(
+    prefix: str = Query("reports/", description="Prefix to filter files"),
+    limit: int = Query(100, description="Maximum number of files to return")
+):
+    try:
+        files = minio_client.list_files(prefix=prefix)
+        files_with_urls = []
+        for file_info in files[:limit]:
+            file_url = f"/api/v1/reports/files/{file_info['name']}"
+            filename = file_info['name'].split('/')[-1] if '/' in file_info['name'] else file_info['name']
+            files_with_urls.append({
+                **file_info,
+                "url": file_url,
+                "filename": filename
+            })
+        return JSONResponse(content={"files": files_with_urls, "total": len(files)})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error listing reports: {str(e)}")
+
+
+@router.delete("/files/{object_name:path}")
+async def delete_report(object_name: str):
+    try:
+        minio_client.delete_file(object_name)
+        return JSONResponse(content={"message": "File deleted successfully"})
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"File not found: {str(e)}")
+

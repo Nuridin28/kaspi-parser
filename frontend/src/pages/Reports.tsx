@@ -4,9 +4,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { productsApi, reportsApi, analyticsApi, type Product } from '@/lib/api'
-import { Download, TrendingUp, TrendingDown, Minus, Calendar, Loader2 } from 'lucide-react'
+import { Download, TrendingUp, TrendingDown, Minus, Calendar, Loader2, Archive } from 'lucide-react'
 import { formatPrice } from '@/lib/utils'
 import { cn } from '@/lib/utils'
+import { Link } from 'react-router-dom'
 
 export default function Reports() {
   const [products, setProducts] = useState<Product[]>([])
@@ -115,11 +116,19 @@ export default function Reports() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight">Отчеты</h2>
-        <p className="text-muted-foreground">
-          Генерация Excel-отчетов и сравнение динамики цен
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Отчеты</h1>
+          <p className="text-muted-foreground mt-2">
+            Генерация Excel-отчетов и сравнение динамики цен
+          </p>
+        </div>
+        <Link to="/reports/archive">
+          <Button variant="outline">
+            <Archive className="h-4 w-4 mr-2" />
+            Архив отчетов
+          </Button>
+        </Link>
       </div>
 
       <Card>

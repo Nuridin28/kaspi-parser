@@ -2,6 +2,7 @@ from minio import Minio
 from minio.error import S3Error
 from app.core.config import settings
 from datetime import timedelta
+from typing import List, Dict
 import io
 import logging
 
@@ -88,6 +89,29 @@ class MinIOClient:
     
     def get_file_url(self, object_name: str, expires_in_seconds: int = 3600) -> str:
         return object_name
+    
+    def list_files(self, prefix: str = "reports/", recursive: bool = True) -> List[Dict]:
+        try:
+            objects = self.client.list_objects(
+                settings.MINIO_BUCKET,
+                prefix=prefix,
+                recursive=recursive
+            )
+            files = []
+            for obj in objects:
+                files.append({
+                    "name": obj.object_name,
+                    "size": obj.size,
+                    "last_modified": obj.last_modified.isoformat() if obj.last_modified else None,
+                    "etag": obj.etag
+                })
+            return sorted(files, key=lambda x: x["last_modified"] or "", reverse=True)
+        except S3Error as e:
+            logger.error(f"Error listing files from MinIO: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error listing files from MinIO: {e}")
+            raise
     
     def delete_file(self, object_name: str):
         try:
