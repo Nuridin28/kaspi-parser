@@ -105,18 +105,17 @@ export default function Analytics() {
 
     try {
       const price = userPrice ? parseFloat(userPrice) : undefined
-      const blob = await reportsApi.generateAdvancedAnalyticsExcel(selectedProduct.id, price)
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `advanced_analytics_${selectedProduct.id}.xlsx`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
+      const reportData = await reportsApi.generateAdvancedAnalyticsExcel(selectedProduct.id, price)
+      const link = document.createElement('a')
+      link.href = reportData.url
+      link.download = reportData.filename
+      link.target = '_blank'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
     } catch (error) {
       console.error('Failed to generate report:', error)
-      alert('Ошибка при генерации отчета')
+      alert('Ошибка при генерации отчета. Попробуйте еще раз.')
     }
   }
 

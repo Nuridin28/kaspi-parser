@@ -1,38 +1,65 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import RedirectResponse, JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from app.core.database import get_db
+from app.core.minio_client import minio_client
 from app.services.product_service import ProductService
 from app.services.report_service import ReportService
 from typing import List
-import tempfile
-import os
+import io
 
 router = APIRouter()
+
+
+@router.get("/files/{object_name:path}")
+async def download_file(
+    object_name: str
+):
+    try:
+        file_data = minio_client.get_file(object_name)
+        filename = object_name.split('/')[-1] if '/' in object_name else object_name
+        
+        return StreamingResponse(
+            io.BytesIO(file_data),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"File not found: {str(e)}")
 
 
 @router.get("/products/{product_id}/excel")
 async def generate_product_excel(
     product_id: int,
+    return_json: bool = Query(False, description="Return JSON with URL instead of redirect"),
     db: Session = Depends(get_db)
 ):
     product = ProductService.get_product(db, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
-    file_path = ReportService.generate_product_excel(db, product_id)
-    
-    return FileResponse(
-        file_path,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=f"product_{product_id}_report.xlsx"
-    )
+    try:
+        object_name = ReportService.generate_product_excel(db, product_id)
+        file_url = f"/api/v1/reports/files/{object_name}"
+        if return_json:
+            return JSONResponse(content={"url": file_url, "filename": f"product_{product_id}_report.xlsx"})
+        return RedirectResponse(url=file_url, status_code=302)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        import traceback
+        error_detail = str(e)
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error generating report: {error_detail}")
 
 
 @router.get("/products/compare/excel")
 async def compare_products_excel(
     product_id_1: int,
     product_id_2: int,
+    return_json: bool = Query(False, description="Return JSON with URL instead of redirect"),
     db: Session = Depends(get_db)
 ):
     product1 = ProductService.get_product(db, product_id_1)
@@ -41,30 +68,33 @@ async def compare_products_excel(
     if not product1 or not product2:
         raise HTTPException(status_code=404, detail="One or both products not found")
     
-    file_path = ReportService.generate_comparison_excel(db, product_id_1, product_id_2)
-    
-    return FileResponse(
-        file_path,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=f"comparison_{product_id_1}_vs_{product_id_2}.xlsx"
-    )
+    try:
+        object_name = ReportService.generate_comparison_excel(db, product_id_1, product_id_2)
+        file_url = f"/api/v1/reports/files/{object_name}"
+        if return_json:
+            return JSONResponse(content={"url": file_url, "filename": f"comparison_{product_id_1}_vs_{product_id_2}.xlsx"})
+        return RedirectResponse(url=file_url, status_code=302)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating report: {str(e)}")
 
 
 @router.get("/products/{product_id}/advanced-excel")
 async def generate_advanced_analytics_excel(
     product_id: int,
     user_price: float = Query(None, description="User price for analysis"),
+    return_json: bool = Query(False, description="Return JSON with URL instead of redirect"),
     db: Session = Depends(get_db)
 ):
     product = ProductService.get_product(db, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
-    file_path = ReportService.generate_advanced_analytics_report(db, product_id, user_price)
-    
-    return FileResponse(
-        file_path,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=f"advanced_analytics_{product_id}.xlsx"
-    )
+    try:
+        object_name = ReportService.generate_advanced_analytics_report(db, product_id, user_price)
+        file_url = f"/api/v1/reports/files/{object_name}"
+        if return_json:
+            return JSONResponse(content={"url": file_url, "filename": f"advanced_analytics_{product_id}.xlsx"})
+        return RedirectResponse(url=file_url, status_code=302)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating report: {str(e)}")
 

@@ -61,6 +61,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://kaspi_user:kaspi_password@postgres:5432/kaspi_db}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}

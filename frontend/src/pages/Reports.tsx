@@ -17,6 +17,8 @@ export default function Reports() {
   const [date2, setDate2] = useState('')
   const [comparisonData, setComparisonData] = useState<any>(null)
   const [isLoadingComparison, setIsLoadingComparison] = useState(false)
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false)
+  const [isGeneratingComparison, setIsGeneratingComparison] = useState(false)
 
   useEffect(() => {
     loadProducts()
@@ -37,18 +39,20 @@ export default function Reports() {
 
   const handleDownloadProductReport = async (productId: number) => {
     try {
-      const blob = await reportsApi.generateProductExcel(productId)
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `product_${productId}_report.xlsx`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
+      setIsGeneratingReport(true)
+      const reportData = await reportsApi.generateProductExcel(productId)
+      const link = document.createElement('a')
+      link.href = reportData.url
+      link.download = reportData.filename
+      link.target = '_blank'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
     } catch (error) {
       console.error('Failed to generate report:', error)
-      alert('Ошибка при генерации отчета')
+      alert('Ошибка при генерации отчета. Попробуйте еще раз.')
+    } finally {
+      setIsGeneratingReport(false)
     }
   }
 
@@ -59,18 +63,20 @@ export default function Reports() {
     }
 
     try {
-      const blob = await reportsApi.generateComparisonExcel(selectedProduct1, selectedProduct2)
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `comparison_${selectedProduct1}_vs_${selectedProduct2}.xlsx`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
+      setIsGeneratingComparison(true)
+      const reportData = await reportsApi.generateComparisonExcel(selectedProduct1, selectedProduct2)
+      const link = document.createElement('a')
+      link.href = reportData.url
+      link.download = reportData.filename
+      link.target = '_blank'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
     } catch (error) {
       console.error('Failed to generate comparison:', error)
-      alert('Ошибка при генерации отчета')
+      alert('Ошибка при генерации отчета. Попробуйте еще раз.')
+    } finally {
+      setIsGeneratingComparison(false)
     }
   }
 
@@ -362,10 +368,19 @@ export default function Reports() {
             </select>
             <Button
               onClick={() => selectedProduct1 && handleDownloadProductReport(selectedProduct1)}
-              disabled={!selectedProduct1}
+              disabled={!selectedProduct1 || isGeneratingReport}
             >
-              <Download className="mr-2 h-4 w-4" />
-              Скачать отчет
+              {isGeneratingReport ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Генерация...
+                </>
+              ) : (
+                <>
+                  <Download className="mr-2 h-4 w-4" />
+                  Скачать отчет
+                </>
+              )}
             </Button>
           </div>
         </CardContent>
@@ -412,10 +427,19 @@ export default function Reports() {
             </div>
             <Button
               onClick={handleDownloadComparison}
-              disabled={!selectedProduct1 || !selectedProduct2}
+              disabled={!selectedProduct1 || !selectedProduct2 || isGeneratingComparison}
             >
-              <Download className="mr-2 h-4 w-4" />
-              Скачать сравнение
+              {isGeneratingComparison ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Генерация...
+                </>
+              ) : (
+                <>
+                  <Download className="mr-2 h-4 w-4" />
+                  Скачать сравнение
+                </>
+              )}
             </Button>
           </div>
         </CardContent>

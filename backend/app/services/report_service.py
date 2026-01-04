@@ -3,13 +3,16 @@ from app.models.product import Product, Offer, PriceHistory, Seller
 from app.services.product_service import ProductService
 from app.services.analytics import AnalyticsService
 from app.services.ai_service import AIService
+from app.core.minio_client import minio_client
 from openpyxl import Workbook
 from openpyxl.chart import LineChart, Reference, BarChart
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from datetime import datetime, timedelta
-import tempfile
-import os
+import io
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ReportService:
@@ -64,11 +67,28 @@ class ReportService:
             ws3.append(["Средняя цена", sum(prices) / len(prices)])
             ws3.append(["Количество предложений", len(prices)])
         
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-        wb.save(temp_file.name)
-        temp_file.close()
-        
-        return temp_file.name
+        try:
+            buffer = io.BytesIO()
+            wb.save(buffer)
+            buffer.seek(0)
+            
+            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            object_name = f"reports/product_{product_id}_{timestamp}.xlsx"
+            
+            file_data = buffer.read()
+            if not file_data:
+                raise ValueError("Generated Excel file is empty")
+            
+            minio_client.upload_bytes(
+                file_data,
+                object_name,
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+            
+            return object_name
+        except Exception as e:
+            logger.error(f"Error saving report to MinIO: {e}", exc_info=True)
+            raise
     
     @staticmethod
     def generate_comparison_excel(db: Session, product_id_1: int, product_id_2: int) -> str:
@@ -114,11 +134,20 @@ class ReportService:
                 offer.seller.rating or "-"
             ])
         
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-        wb.save(temp_file.name)
-        temp_file.close()
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
         
-        return temp_file.name
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        object_name = f"reports/comparison_{product_id_1}_vs_{product_id_2}_{timestamp}.xlsx"
+        
+        minio_client.upload_bytes(
+            buffer.read(),
+            object_name,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        
+        return object_name
 
     @staticmethod
     def generate_advanced_analytics_report(db: Session, product_id: int, user_price: float = None) -> str:
@@ -363,8 +392,17 @@ class ReportService:
         ws.column_dimensions['A'].width = 40
         ws.column_dimensions['B'].width = 30
         
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-        wb.save(temp_file.name)
-        temp_file.close()
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
         
-        return temp_file.name
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        object_name = f"reports/advanced_analytics_{product_id}_{timestamp}.xlsx"
+        
+        minio_client.upload_bytes(
+            buffer.read(),
+            object_name,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        
+        return object_name

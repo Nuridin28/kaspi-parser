@@ -135,28 +135,36 @@ export const analyticsApi = {
   },
 }
 
+export interface ReportResponse {
+  url: string
+  filename: string
+}
+
 export const reportsApi = {
-  generateProductExcel: async (productId: number): Promise<Blob> => {
+  generateProductExcel: async (productId: number): Promise<ReportResponse> => {
     const response = await api.get(`/reports/products/${productId}/excel`, {
-      responseType: 'blob',
+      params: { return_json: true },
     })
     return response.data
   },
   
-  generateComparisonExcel: async (productId1: number, productId2: number): Promise<Blob> => {
+  generateComparisonExcel: async (productId1: number, productId2: number): Promise<ReportResponse> => {
     const response = await api.get(`/reports/products/compare/excel`, {
-      params: { product_id_1: productId1, product_id_2: productId2 },
-      responseType: 'blob',
+      params: { 
+        product_id_1: productId1, 
+        product_id_2: productId2,
+        return_json: true,
+      },
     })
     return response.data
   },
   
-  generateAdvancedAnalyticsExcel: async (productId: number, userPrice?: number): Promise<Blob> => {
-    const params: any = {}
+  generateAdvancedAnalyticsExcel: async (productId: number, userPrice?: number): Promise<ReportResponse> => {
+    const params: any = { return_json: true }
     if (userPrice) params.user_price = userPrice
+    
     const response = await api.get(`/reports/products/${productId}/advanced-excel`, {
       params,
-      responseType: 'blob',
     })
     return response.data
   },

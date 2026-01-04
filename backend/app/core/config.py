@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_TTL: int = 86400
     MINIO_ENDPOINT: str = "localhost:9000"
+    MINIO_PUBLIC_URL: str = "http://localhost:9000"  # Public URL for presigned URLs (accessible from browser)
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_BUCKET: str = "kaspi-reports"
