@@ -24,8 +24,7 @@ async def daily_price_update():
         
         for product in products:
             try:
-                # parse_and_save_product уже сохраняет старые offers в price_history
-                await ProductService.parse_and_save_product(db, f"https://kaspi.kz/shop/p/product/{product.kaspi_id}/")
+                await ProductService.parse_and_save_product(f"https://kaspi.kz/shop/p/product/{product.kaspi_id}/", None, db)
             except Exception as e:
                 print(f"Error updating product {product.id}: {e}")
                 db.rollback()
@@ -152,11 +151,9 @@ def update_job_schedule(job_id: str, config: SchedulerConfig):
 def start_scheduler():
     db = SessionLocal()
     try:
-        # Настройка задачи парсинга цен
         price_config = get_or_create_scheduler_config(db, "daily_price_update")
         update_job_schedule("daily_price_update", price_config)
         
-        # Настройка задачи агрегации аналитики
         analytics_config = get_or_create_scheduler_config(db, "daily_analytics_aggregation")
         update_job_schedule("daily_analytics_aggregation", analytics_config)
     finally:

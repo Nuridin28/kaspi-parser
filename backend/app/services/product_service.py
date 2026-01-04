@@ -3,6 +3,7 @@ from typing import List, Optional
 from app.models.product import Product, Seller, Offer, PriceHistory
 from app.models.job import ParsingJob, JobStatus
 from app.core.redis_client import redis_client
+from app.core.database import SessionLocal
 from app.services.parser import KaspiAPIParser
 from datetime import datetime
 import asyncio
@@ -11,17 +12,23 @@ import hashlib
 
 class ProductService:
     @staticmethod
-    async def parse_and_save_product(db: Session, url: str, job_id: Optional[int] = None) -> Product:
-        if job_id:
-            job = db.query(ParsingJob).filter(ParsingJob.id == job_id).first()
-            if job:
-                job.status = JobStatus.PARSING
-                job.started_at = datetime.utcnow()
-                db.commit()
-                from app.api.v1.websocket import notify_job_status
-                await notify_job_status(job_id, "parsing", "Парсинг начат")
+    async def parse_and_save_product(url: str, job_id: Optional[int] = None, db: Optional[Session] = None) -> Product:
+        if db is None:
+            db = SessionLocal()
+            should_close = True
+        else:
+            should_close = False
         
         try:
+            if job_id:
+                job = db.query(ParsingJob).filter(ParsingJob.id == job_id).first()
+                if job:
+                    job.status = JobStatus.PARSING
+                    job.started_at = datetime.utcnow()
+                    db.commit()
+                    from app.api.v1.websocket import notify_job_status
+                    await notify_job_status(job_id, "parsing", "Парсинг начат")
+            
             from app.core.config import settings
             parser = KaspiAPIParser(
                 top_n=settings.TOP_SELLERS_COUNT
@@ -67,16 +74,15 @@ class ProductService:
                 seller_name = offer_data["seller_name"]
                 seller_kaspi_id = offer_data.get("seller_id")
                 
-                # Use seller_id from API if available, otherwise generate from name
                 if not seller_kaspi_id:
-                    seller_kaspi_id = f"seller_{hashlib.md5(seller_name.encode()).hexdigest()[:8]}"
+                    seller_kaspi_id = hashlib.md5(seller_name.encode()).hexdigest()
+                    print(f"Generated kaspi_id for seller {seller_name}: {seller_kaspi_id}")
                 else:
                     seller_kaspi_id = str(seller_kaspi_id)
                 
-                # Try to find seller by kaspi_id first, then by name
-                seller = db.query(Seller).filter(Seller.kaspi_id == seller_kaspi_id).first()
-                if not seller:
-                    seller = db.query(Seller).filter(Seller.name == seller_name).first()
+                seller = db.query(Seller).filter(
+                    (Seller.kaspi_id == seller_kaspi_id) | (Seller.name == seller_name)
+                ).first()
                 
                 if not seller:
                     seller = Seller(
@@ -88,6 +94,10 @@ class ProductService:
                     db.add(seller)
                     db.commit()
                     db.refresh(seller)
+                else:
+                    if not seller.kaspi_id.startswith("seller_") and seller.kaspi_id != seller_kaspi_id:
+                        print(f"Updating kaspi_id for existing seller {seller.name} from {seller.kaspi_id} to {seller_kaspi_id}")
+                        seller.kaspi_id = seller_kaspi_id
                 
                 if offer_data.get("rating"):
                     seller.rating = offer_data["rating"]
@@ -153,6 +163,9 @@ class ProductService:
                     from app.api.v1.websocket import notify_job_status
                     await notify_job_status(job_id, "failed", f"Ошибка: {str(e)}")
             raise
+        finally:
+            if should_close:
+                db.close()
     
     @staticmethod
     def get_product(db: Session, product_id: int) -> Optional[Product]:
@@ -177,4 +190,3 @@ class ProductService:
                 (Product.category.ilike(f"%{search}%"))
             )
         return query.offset(skip).limit(limit).all()
-

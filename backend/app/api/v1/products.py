@@ -35,7 +35,6 @@ async def create_product(
     
     background_tasks.add_task(
         ProductService.parse_and_save_product,
-        db,
         str(product.url),
         job.id
     )
@@ -65,7 +64,6 @@ async def create_products_bulk(
         redis_client.set_job_status(str(job.id), "pending")
         background_tasks.add_task(
             ProductService.parse_and_save_product,
-            db,
             job.kaspi_url,
             job.id
         )
@@ -168,7 +166,6 @@ async def parse_product(
     
     background_tasks.add_task(
         ProductService.parse_and_save_product,
-        db,
         url,
         job.id
     )
