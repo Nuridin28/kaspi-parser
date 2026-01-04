@@ -7,9 +7,11 @@ from app.services.analytics import AnalyticsService
 from app.services.product_service import ProductService
 from app.core.redis_client import redis_client
 from app.models.analytics import AnalyticsDaily
-from app.models.product import PriceHistory, Seller
+from app.models.product import PriceHistory, Seller, Product, Offer
+from app.models.job import ParsingJob, JobStatus
 from datetime import date, datetime, timedelta
 from typing import List, Optional
+from sqlalchemy import func
 
 router = APIRouter()
 
@@ -392,5 +394,124 @@ async def analyze_scenario(
         "percentile": position_est.percentile,
         "price_change_percent": ((scenario_price - current_price) / current_price * 100) if current_price > 0 else 0,
         "analysis": scenario_analysis
+    }
+
+
+@router.get("/dashboard")
+async def get_dashboard_metrics(
+    db: Session = Depends(get_db)
+):
+    total_products = db.query(Product).count()
+    
+    active_threshold = datetime.utcnow() - timedelta(days=7)
+    active_products = db.query(Product).join(
+        Offer, Product.id == Offer.product_id
+    ).filter(
+        Offer.parsed_at >= active_threshold
+    ).distinct().count()
+    
+    total_sellers = db.query(Seller).count()
+    
+    total_offers = db.query(Offer).count()
+    
+    avg_price_result = db.query(func.avg(Offer.price)).scalar()
+    avg_price = float(avg_price_result) if avg_price_result else 0
+    
+    last_24h = datetime.utcnow() - timedelta(hours=24)
+    jobs_last_24h = db.query(ParsingJob).filter(
+        ParsingJob.created_at >= last_24h
+    ).all()
+    
+    completed_jobs = sum(1 for job in jobs_last_24h if job.status == JobStatus.COMPLETED)
+    failed_jobs = sum(1 for job in jobs_last_24h if job.status == JobStatus.FAILED)
+    pending_jobs = sum(1 for job in jobs_last_24h if job.status == JobStatus.PARSING or job.status == JobStatus.PENDING)
+    
+    last_7_days = datetime.utcnow() - timedelta(days=7)
+    jobs_by_day = db.query(
+        func.date(ParsingJob.created_at).label('day'),
+        func.count(ParsingJob.id).label('count')
+    ).filter(
+        ParsingJob.created_at >= last_7_days
+    ).group_by(func.date(ParsingJob.created_at)).all()
+    
+    parsing_activity = [
+        {
+            "date": day.isoformat(),
+            "count": count
+        }
+        for day, count in jobs_by_day
+    ]
+    
+    products_with_history = db.query(Product).join(
+        PriceHistory, Product.id == PriceHistory.product_id
+    ).filter(
+        PriceHistory.recorded_at >= last_7_days
+    ).distinct().all()
+    
+    top_price_changes = []
+    for product in products_with_history:
+        history_records = db.query(PriceHistory).filter(
+            PriceHistory.product_id == product.id,
+            PriceHistory.recorded_at >= last_7_days
+        ).order_by(PriceHistory.recorded_at).all()
+        
+        if not history_records:
+            continue
+        
+        first_price = history_records[0].price
+        last_price = history_records[-1].price
+        
+        if first_price == last_price:
+            continue
+        
+        price_change = last_price - first_price
+        price_change_percent = ((price_change / first_price) * 100) if first_price > 0 else 0
+        
+        top_price_changes.append({
+            "product_id": product.id,
+            "product_name": product.name or f"Товар #{product.kaspi_id}",
+            "kaspi_id": product.kaspi_id,
+            "first_price": float(first_price),
+            "last_price": float(last_price),
+            "price_change": float(price_change),
+            "price_change_percent": float(price_change_percent),
+            "first_date": history_records[0].recorded_at.isoformat(),
+            "last_date": history_records[-1].recorded_at.isoformat()
+        })
+    
+    top_price_changes.sort(key=lambda x: abs(x["price_change"]), reverse=True)
+    top_price_changes = top_price_changes[:5]
+    
+    categories_count = db.query(
+        Product.category,
+        func.count(Product.id).label('count')
+    ).filter(
+        Product.category.isnot(None)
+    ).group_by(Product.category).all()
+    
+    categories = [
+        {"name": cat or "Без категории", "count": count}
+        for cat, count in categories_count
+    ]
+    
+    return {
+        "overview": {
+            "total_products": total_products,
+            "active_products": active_products,
+            "total_sellers": total_sellers,
+            "total_offers": total_offers,
+            "avg_price": round(avg_price, 2)
+        },
+        "parsing_stats": {
+            "last_24h": {
+                "total": len(jobs_last_24h),
+                "completed": completed_jobs,
+                "failed": failed_jobs,
+                "pending": pending_jobs
+            },
+            "activity": parsing_activity
+        },
+        "top_price_changes": top_price_changes,
+        "categories": categories
     }
 

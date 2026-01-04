@@ -133,6 +133,11 @@ export const analyticsApi = {
     })
     return response.data
   },
+  
+  getDashboardMetrics: async () => {
+    const response = await api.get('/analytics/dashboard')
+    return response.data
+  },
 }
 
 export interface ReportResponse {
