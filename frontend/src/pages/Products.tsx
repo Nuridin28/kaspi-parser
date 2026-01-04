@@ -247,7 +247,7 @@ export default function Products() {
                     )}
                   </div>
 
-                  <div className="flex gap-2 pt-2">
+                  <div className="flex gap-2 pt-2 items-center">
                     <Button
                       variant="outline"
                       size="sm"
@@ -271,6 +271,7 @@ export default function Products() {
                       variant="outline"
                       size="sm"
                       asChild
+                      className="h-9"
                     >
                       <Link to={`/analytics?product=${product.id}`}>
                         Аналитика
@@ -280,9 +281,10 @@ export default function Products() {
                       variant="outline"
                       size="icon"
                       asChild
+                      className="h-9 w-9 flex items-center justify-center"
                     >
                       <a
-                        href={`https://kaspi.kz/shop/p/product/${product.kaspi_id}/`}
+                        href={`https://kaspi.kz/shop/p/product/${product.kaspi_id}/?c=750000000`}
                         target="_blank"
                         rel="noopener noreferrer"
                       >
