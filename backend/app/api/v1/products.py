@@ -156,7 +156,7 @@ async def parse_product(
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
-    url = f"https://kaspi.kz/shop/p/product/{product.kaspi_id}/"
+    url = f"https://kaspi.kz/shop/p/{product.kaspi_id}/"
     job = ParsingJob(kaspi_url=url)
     db.add(job)
     db.commit()

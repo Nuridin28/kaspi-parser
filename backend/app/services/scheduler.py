@@ -26,7 +26,7 @@ async def daily_price_update():
         for product in products:
             try:
                 updated_product = await ProductService.parse_and_save_product(
-                    f"https://kaspi.kz/shop/p/product/{product.kaspi_id}/", 
+                    f"https://kaspi.kz/shop/p/{product.kaspi_id}/", 
                     None, 
                     db
                 )

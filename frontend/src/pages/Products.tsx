@@ -284,7 +284,7 @@ export default function Products() {
                       className="h-9 w-9 flex items-center justify-center"
                     >
                       <a
-                        href={`https://kaspi.kz/shop/p/product/${product.kaspi_id}/?c=750000000`}
+                        href={`https://kaspi.kz/shop/p/${product.kaspi_id}/?c=750000000`}
                         target="_blank"
                         rel="noopener noreferrer"
                       >
