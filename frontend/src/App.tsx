@@ -6,6 +6,7 @@ import Analytics from './pages/Analytics'
 import Reports from './pages/Reports'
 import ArchiveReports from './pages/ArchiveReports'
 import Scheduler from './pages/Scheduler'
+import { Toaster } from 'sonner'
 
 function App() {
   return (
@@ -20,6 +21,7 @@ function App() {
           <Route path="/scheduler" element={<Scheduler />} />
         </Routes>
       </Layout>
+      <Toaster />
     </Router>
   )
 }

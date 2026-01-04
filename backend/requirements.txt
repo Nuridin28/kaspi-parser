@@ -17,4 +17,6 @@ passlib[bcrypt]==1.7.4
 python-dotenv==1.0.0
 httpx[http2]==0.25.2
 aiofiles==23.2.1
+slowapi==0.1.9
+prometheus-client==0.19.0
 

@@ -4,16 +4,36 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { productsApi, jobsApi, type Job } from '@/lib/api'
 import { Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react'
+import { useWebSocket } from '@/hooks/useWebSocket'
 
 export default function Dashboard() {
   const [url, setUrl] = useState('')
   const [bulkUrls, setBulkUrls] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [recentJobs, setRecentJobs] = useState<Job[]>([])
+  const [activeJobId, setActiveJobId] = useState<number | null>(null)
 
   useEffect(() => {
     loadRecentJobs()
+    const interval = setInterval(loadRecentJobs, 5000)
+    return () => clearInterval(interval)
   }, [])
+
+  const handleWebSocketMessage = (message: any) => {
+    if (message.type === 'status_update') {
+      setRecentJobs(prev => prev.map(job => 
+        job.id === message.job_id 
+          ? { ...job, status: message.status }
+          : job
+      ))
+      if (message.status === 'completed' || message.status === 'failed') {
+        setActiveJobId(null)
+        loadRecentJobs()
+      }
+    }
+  }
+
+  useWebSocket(activeJobId, handleWebSocketMessage)
 
   const loadRecentJobs = async () => {
     try {
@@ -29,8 +49,9 @@ export default function Dashboard() {
 
     setIsLoading(true)
     try {
-      await productsApi.create(url)
+      const job = await productsApi.create(url)
       setUrl('')
+      setActiveJobId(job.id)
       await loadRecentJobs()
     } catch (error) {
       console.error('Failed to add product:', error)

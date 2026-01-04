@@ -18,6 +18,8 @@ class ProductService:
                 job.status = JobStatus.PARSING
                 job.started_at = datetime.utcnow()
                 db.commit()
+                from app.api.v1.websocket import notify_job_status
+                await notify_job_status(job_id, "parsing", "Парсинг начат")
         
         try:
             from app.core.config import settings
@@ -134,6 +136,8 @@ class ProductService:
                     job.kaspi_product_id = kaspi_id
                     job.completed_at = datetime.utcnow()
                     db.commit()
+                    from app.api.v1.websocket import notify_job_status
+                    await notify_job_status(job_id, "completed", "Парсинг завершен успешно")
             
             return product
             
@@ -146,6 +150,8 @@ class ProductService:
                     job.error_message = str(e)
                     job.completed_at = datetime.utcnow()
                     db.commit()
+                    from app.api.v1.websocket import notify_job_status
+                    await notify_job_status(job_id, "failed", f"Ошибка: {str(e)}")
             raise
     
     @staticmethod
@@ -161,8 +167,14 @@ class ProductService:
         ).filter(Product.kaspi_id == kaspi_id).first()
     
     @staticmethod
-    def list_products(db: Session, skip: int = 0, limit: int = 100) -> List[Product]:
-        return db.query(Product).options(
+    def list_products(db: Session, skip: int = 0, limit: int = 100, search: Optional[str] = None) -> List[Product]:
+        query = db.query(Product).options(
             joinedload(Product.offers).joinedload(Offer.seller)
-        ).offset(skip).limit(limit).all()
+        )
+        if search:
+            query = query.filter(
+                (Product.name.ilike(f"%{search}%")) | 
+                (Product.category.ilike(f"%{search}%"))
+            )
+        return query.offset(skip).limit(limit).all()
 

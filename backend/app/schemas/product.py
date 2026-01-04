@@ -57,6 +57,15 @@ class ProductResponse(BaseModel):
 
 class ProductCreate(BaseModel):
     url: HttpUrl = Field(..., description="URL товара на Kaspi")
+    
+    @model_validator(mode='after')
+    def validate_kaspi_url(self):
+        url_str = str(self.url)
+        if 'kaspi.kz' not in url_str:
+            raise ValueError('URL must be from kaspi.kz domain')
+        if '/shop/p/' not in url_str:
+            raise ValueError('URL must be a product page from Kaspi')
+        return self
 
 
 class BulkProductCreate(BaseModel):

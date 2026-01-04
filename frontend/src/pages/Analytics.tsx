@@ -8,6 +8,7 @@ import { productsApi, analyticsApi, reportsApi, type Product, type PositionEstim
 import { formatPrice } from '@/lib/utils'
 import { Loader2, Download, TrendingUp, TrendingDown, AlertTriangle, Brain, BarChart3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts'
 
 export default function Analytics() {
   const [searchParams] = useSearchParams()
@@ -23,6 +24,8 @@ export default function Analytics() {
   const [isLoadingAdvanced, setIsLoadingAdvanced] = useState(false)
   const [scenarioPrice, setScenarioPrice] = useState('')
   const [scenarioAnalysis, setScenarioAnalysis] = useState<any>(null)
+  const [priceHistory, setPriceHistory] = useState<any[]>([])
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
 
   useEffect(() => {
     loadProducts()
@@ -49,8 +52,29 @@ export default function Analytics() {
       const product = await productsApi.get(id)
       setSelectedProduct(product)
       await loadStatistics(id)
+      await loadPriceHistory(id)
     } catch (error) {
       console.error('Failed to load product:', error)
+    }
+  }
+
+  const loadPriceHistory = async (productId: number) => {
+    try {
+      setIsLoadingHistory(true)
+      const endDate = new Date()
+      const startDate = new Date()
+      startDate.setDate(startDate.getDate() - 30)
+      
+      const history = await analyticsApi.getPriceHistory(
+        productId,
+        startDate.toISOString().split('T')[0],
+        endDate.toISOString().split('T')[0]
+      )
+      setPriceHistory(history)
+    } catch (error) {
+      console.error('Failed to load price history:', error)
+    } finally {
+      setIsLoadingHistory(false)
     }
   }
 
@@ -226,6 +250,34 @@ export default function Analytics() {
               </div>
             </CardContent>
           </Card>
+
+          {priceHistory.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>История цен (30 дней)</CardTitle>
+                <CardDescription>Динамика изменения цен</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={priceHistory.map(h => ({
+                    date: new Date(h.date).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
+                    min: h.min_price,
+                    max: h.max_price,
+                    avg: h.avg_price
+                  }))}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" />
+                    <YAxis />
+                    <Tooltip formatter={(value: number) => formatPrice(value)} />
+                    <Legend />
+                    <Line type="monotone" dataKey="min" stroke="#ef4444" name="Мин. цена" />
+                    <Line type="monotone" dataKey="avg" stroke="#3b82f6" name="Средняя цена" />
+                    <Line type="monotone" dataKey="max" stroke="#10b981" name="Макс. цена" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>

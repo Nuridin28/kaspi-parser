@@ -1,8 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request, Query
+from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from datetime import datetime
+import csv
+import io
+import json
 from app.core.database import get_db
+from app.core.rate_limit import limiter
 from app.schemas.product import ProductCreate, ProductResponse, BulkProductCreate, ProductUpdate
 from app.schemas.job import JobResponse
 from app.services.product_service import ProductService
@@ -14,7 +19,9 @@ router = APIRouter()
 
 
 @router.post("/", response_model=JobResponse, status_code=202)
+@limiter.limit("10/minute")
 async def create_product(
+    request: Request,
     product: ProductCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
@@ -37,7 +44,9 @@ async def create_product(
 
 
 @router.post("/bulk", response_model=List[JobResponse], status_code=202)
+@limiter.limit("5/minute")
 async def create_products_bulk(
+    request: Request,
     products: BulkProductCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
@@ -65,12 +74,15 @@ async def create_products_bulk(
 
 
 @router.get("/", response_model=List[ProductResponse])
+@limiter.limit("30/minute")
 async def list_products(
-    skip: int = 0,
-    limit: int = 100,
+    request: Request,
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of records to return"),
+    search: Optional[str] = Query(None, description="Search by name or category"),
     db: Session = Depends(get_db)
 ):
-    products = ProductService.list_products(db, skip=skip, limit=limit)
+    products = ProductService.list_products(db, skip=skip, limit=limit, search=search)
     return products
 
 
