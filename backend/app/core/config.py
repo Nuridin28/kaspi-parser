@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_TTL: int = 86400
     MINIO_ENDPOINT: str = "localhost:9000"
-    MINIO_PUBLIC_URL: str = "http://localhost:9000"  # Public URL for presigned URLs (accessible from browser)
+    MINIO_PUBLIC_URL: str = "http://localhost:9000" 
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_BUCKET: str = "kaspi-reports"
@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     PARSING_INTERVAL_MINUTES: int = 0
     PARSE_ALL_PRICES: bool = True
     MAX_PARSING_PAGES: int = 50
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
+    DB_POOL_RECYCLE: int = 3600
+    DB_POOL_TIMEOUT: int = 30
     
     class Config:
         env_file = ".env"
