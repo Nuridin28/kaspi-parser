@@ -6,6 +6,7 @@ from app.core.minio_client import minio_client
 from app.services.product_service import ProductService
 from app.services.report_service import ReportService
 from typing import List
+from datetime import date
 import io
 
 router = APIRouter()
@@ -95,6 +96,31 @@ async def generate_advanced_analytics_excel(
         if return_json:
             return JSONResponse(content={"url": file_url, "filename": f"advanced_analytics_{product_id}.xlsx"})
         return RedirectResponse(url=file_url, status_code=302)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating report: {str(e)}")
+
+
+@router.get("/products/{product_id}/price-comparison-excel")
+async def generate_price_comparison_excel(
+    product_id: int,
+    date1: date = Query(..., description="First date for comparison"),
+    date2: date = Query(..., description="Second date for comparison"),
+    return_json: bool = Query(False, description="Return JSON with URL instead of redirect"),
+    db: Session = Depends(get_db)
+):
+    product = ProductService.get_product(db, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    try:
+        object_name = ReportService.generate_price_comparison_excel(db, product_id, date1, date2)
+        file_url = f"/api/v1/reports/files/{object_name}"
+        if return_json:
+            filename = f"price_comparison_{product_id}_{date1.strftime('%Y%m%d')}_vs_{date2.strftime('%Y%m%d')}.xlsx"
+            return JSONResponse(content={"url": file_url, "filename": filename})
+        return RedirectResponse(url=file_url, status_code=302)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating report: {str(e)}")
 

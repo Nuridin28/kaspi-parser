@@ -8,7 +8,7 @@ from openpyxl import Workbook
 from openpyxl.chart import LineChart, Reference, BarChart
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import io
 import logging
 
@@ -140,6 +140,142 @@ class ReportService:
         
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         object_name = f"reports/comparison_{product_id_1}_vs_{product_id_2}_{timestamp}.xlsx"
+        
+        minio_client.upload_bytes(
+            buffer.read(),
+            object_name,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        
+        return object_name
+
+    @staticmethod
+    def generate_price_comparison_excel(db: Session, product_id: int, date1: date, date2: date) -> str:
+        from datetime import datetime as dt
+        from sqlalchemy import and_
+        
+        product = ProductService.get_product(db, product_id)
+        if not product:
+            raise ValueError("Product not found")
+        
+        def get_date_data(target_date: date):
+            start_datetime = dt.combine(target_date, dt.min.time())
+            end_datetime = dt.combine(target_date, dt.max.time())
+            
+            history_records = db.query(PriceHistory).filter(
+                and_(
+                    PriceHistory.product_id == product_id,
+                    PriceHistory.recorded_at >= start_datetime,
+                    PriceHistory.recorded_at <= end_datetime
+                )
+            ).order_by(PriceHistory.recorded_at.desc()).all()
+            
+            if not history_records:
+                return None
+            
+            latest_time = history_records[0].recorded_at
+            latest_records = [r for r in history_records if r.recorded_at.date() == latest_time.date() and abs((r.recorded_at - latest_time).total_seconds()) < 3600]
+            
+            offers = []
+            for record in latest_records:
+                seller = db.query(Seller).filter(Seller.id == record.seller_id).first()
+                offers.append({
+                    "seller_id": record.seller_id,
+                    "seller_name": seller.name if seller else "Unknown",
+                    "price": record.price,
+                    "position": record.position,
+                    "recorded_at": record.recorded_at.isoformat()
+                })
+            
+            if not offers:
+                return None
+            
+            prices = [o["price"] for o in offers]
+            return {
+                "date": target_date.isoformat(),
+                "offers": sorted(offers, key=lambda x: x["price"]),
+                "min_price": min(prices),
+                "max_price": max(prices),
+                "avg_price": sum(prices) / len(prices),
+                "offers_count": len(offers)
+            }
+        
+        date1_data = get_date_data(date1)
+        date2_data = get_date_data(date2)
+        
+        if not date1_data or not date2_data:
+            raise ValueError("No data available for one or both dates")
+        
+        wb = Workbook()
+        
+        ws1 = wb.active
+        ws1.title = "Сравнение"
+        
+        header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF")
+        
+        ws1.append(["Метрика", f"Дата 1 ({date1})", f"Дата 2 ({date2})", "Изменение"])
+        for cell in ws1[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center")
+        
+        ws1.append(["Минимальная цена", date1_data["min_price"], date2_data["min_price"], 
+                    date2_data["min_price"] - date1_data["min_price"]])
+        ws1.append(["Максимальная цена", date1_data["max_price"], date2_data["max_price"],
+                    date2_data["max_price"] - date1_data["max_price"]])
+        ws1.append(["Средняя цена", round(date1_data["avg_price"], 2), round(date2_data["avg_price"], 2),
+                    round(date2_data["avg_price"] - date1_data["avg_price"], 2)])
+        ws1.append(["Количество предложений", date1_data["offers_count"], date2_data["offers_count"],
+                    date2_data["offers_count"] - date1_data["offers_count"]])
+        
+        ws2 = wb.create_sheet(f"Дата 1 ({date1})")
+        ws2.append(["Позиция", "Продавец", "Цена"])
+        for cell in ws2[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center")
+        
+        for offer in date1_data["offers"]:
+            ws2.append([
+                offer["position"] or "-",
+                offer["seller_name"],
+                offer["price"]
+            ])
+        
+        ws3 = wb.create_sheet(f"Дата 2 ({date2})")
+        ws3.append(["Позиция", "Продавец", "Цена"])
+        for cell in ws3[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center")
+        
+        for offer in date2_data["offers"]:
+            ws3.append([
+                offer["position"] or "-",
+                offer["seller_name"],
+                offer["price"]
+            ])
+        
+        for ws in [ws1, ws2, ws3]:
+            for column in ws.columns:
+                max_length = 0
+                column_letter = get_column_letter(column[0].column)
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                ws.column_dimensions[column_letter].width = adjusted_width
+        
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        object_name = f"reports/price_comparison_{product_id}_{date1.strftime('%Y%m%d')}_vs_{date2.strftime('%Y%m%d')}_{timestamp}.xlsx"
         
         minio_client.upload_bytes(
             buffer.read(),

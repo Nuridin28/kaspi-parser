@@ -26,6 +26,11 @@ export default function Analytics() {
   const [scenarioAnalysis, setScenarioAnalysis] = useState<any>(null)
   const [priceHistory, setPriceHistory] = useState<any[]>([])
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [comparisonDate1, setComparisonDate1] = useState('')
+  const [comparisonDate2, setComparisonDate2] = useState('')
+  const [comparisonData, setComparisonData] = useState<any>(null)
+  const [isLoadingComparison, setIsLoadingComparison] = useState(false)
+  const [isGeneratingComparisonReport, setIsGeneratingComparisonReport] = useState(false)
 
   useEffect(() => {
     loadProducts()
@@ -84,6 +89,50 @@ export default function Analytics() {
       setStatistics(stats)
     } catch (error) {
       console.error('Failed to load statistics:', error)
+    }
+  }
+
+  const handleComparePrices = async () => {
+    if (!selectedProduct || !comparisonDate1 || !comparisonDate2) return
+
+    setIsLoadingComparison(true)
+    try {
+      const data = await analyticsApi.comparePrices(
+        selectedProduct.id,
+        comparisonDate1,
+        comparisonDate2
+      )
+      setComparisonData(data)
+    } catch (error) {
+      console.error('Failed to compare prices:', error)
+      alert('Ошибка при сравнении цен. Убедитесь, что для выбранных дат есть данные.')
+    } finally {
+      setIsLoadingComparison(false)
+    }
+  }
+
+  const handleDownloadComparisonReport = async () => {
+    if (!selectedProduct || !comparisonDate1 || !comparisonDate2) return
+
+    setIsGeneratingComparisonReport(true)
+    try {
+      const result = await reportsApi.generatePriceComparisonExcel(
+        selectedProduct.id,
+        comparisonDate1,
+        comparisonDate2
+      )
+      const link = document.createElement('a')
+      link.href = result.url
+      link.download = result.filename
+      link.target = '_blank'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    } catch (error) {
+      console.error('Failed to generate comparison report:', error)
+      alert('Ошибка при генерации отчета')
+    } finally {
+      setIsGeneratingComparisonReport(false)
     }
   }
 
@@ -278,6 +327,116 @@ export default function Analytics() {
               </CardContent>
             </Card>
           )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Сравнение цен по датам</CardTitle>
+              <CardDescription>Сравните цены товара на две разные даты</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <Label htmlFor="date1">Дата 1</Label>
+                  <Input
+                    id="date1"
+                    type="date"
+                    value={comparisonDate1}
+                    onChange={(e) => setComparisonDate1(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="date2">Дата 2</Label>
+                  <Input
+                    id="date2"
+                    type="date"
+                    value={comparisonDate2}
+                    onChange={(e) => setComparisonDate2(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleComparePrices}
+                  disabled={isLoadingComparison || !comparisonDate1 || !comparisonDate2 || !selectedProduct}
+                >
+                  {isLoadingComparison ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Загрузка...
+                    </>
+                  ) : (
+                    <>
+                      <BarChart3 className="mr-2 h-4 w-4" />
+                      Сравнить
+                    </>
+                  )}
+                </Button>
+                {comparisonData && (
+                  <Button
+                    onClick={handleDownloadComparisonReport}
+                    disabled={isGeneratingComparisonReport}
+                    variant="outline"
+                  >
+                    {isGeneratingComparisonReport ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Генерация...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="mr-2 h-4 w-4" />
+                        Скачать отчет
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+              {comparisonData && (
+                <div className="mt-4 p-4 border rounded-md bg-muted">
+                  <h3 className="font-semibold mb-3">Результаты сравнения</h3>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-2">Дата 1 ({comparisonData.date1?.date})</p>
+                      <div className="space-y-1">
+                        <p className="text-sm">Мин. цена: <span className="font-semibold">{formatPrice(comparisonData.date1?.min_price)}</span></p>
+                        <p className="text-sm">Макс. цена: <span className="font-semibold">{formatPrice(comparisonData.date1?.max_price)}</span></p>
+                        <p className="text-sm">Средняя цена: <span className="font-semibold">{formatPrice(comparisonData.date1?.avg_price)}</span></p>
+                        <p className="text-sm">Предложений: <span className="font-semibold">{comparisonData.date1?.offers_count}</span></p>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-2">Дата 2 ({comparisonData.date2?.date})</p>
+                      <div className="space-y-1">
+                        <p className="text-sm">Мин. цена: <span className="font-semibold">{formatPrice(comparisonData.date2?.min_price)}</span></p>
+                        <p className="text-sm">Макс. цена: <span className="font-semibold">{formatPrice(comparisonData.date2?.max_price)}</span></p>
+                        <p className="text-sm">Средняя цена: <span className="font-semibold">{formatPrice(comparisonData.date2?.avg_price)}</span></p>
+                        <p className="text-sm">Предложений: <span className="font-semibold">{comparisonData.date2?.offers_count}</span></p>
+                      </div>
+                    </div>
+                  </div>
+                  {comparisonData.price_change && (
+                    <div className="mt-4 pt-4 border-t">
+                      <p className="text-sm font-semibold mb-2">Изменения:</p>
+                      <div className="space-y-1">
+                        <p className="text-sm">
+                          Мин. цена: {comparisonData.price_change.min_change >= 0 ? '+' : ''}{formatPrice(comparisonData.price_change.min_change)} 
+                          ({comparisonData.price_change.min_change_percent >= 0 ? '+' : ''}{comparisonData.price_change.min_change_percent.toFixed(2)}%)
+                        </p>
+                        <p className="text-sm">
+                          Макс. цена: {comparisonData.price_change.max_change >= 0 ? '+' : ''}{formatPrice(comparisonData.price_change.max_change)}
+                          ({comparisonData.price_change.max_change_percent >= 0 ? '+' : ''}{comparisonData.price_change.max_change_percent.toFixed(2)}%)
+                        </p>
+                        <p className="text-sm">
+                          Средняя цена: {comparisonData.price_change.avg_change >= 0 ? '+' : ''}{formatPrice(comparisonData.price_change.avg_change)}
+                          ({comparisonData.price_change.avg_change_percent >= 0 ? '+' : ''}{comparisonData.price_change.avg_change_percent.toFixed(2)}%)
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>

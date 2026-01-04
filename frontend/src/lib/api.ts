@@ -183,6 +183,13 @@ export const reportsApi = {
     return response.data
   },
   
+  generatePriceComparisonExcel: async (productId: number, date1: string, date2: string): Promise<ReportResponse> => {
+    const response = await api.get(`/reports/products/${productId}/price-comparison-excel`, {
+      params: { date1, date2, return_json: true }
+    })
+    return response.data
+  },
+  
   listReports: async (prefix?: string, limit?: number): Promise<ReportListResponse> => {
     const response = await api.get(`/reports/files`, {
       params: { prefix, limit },
