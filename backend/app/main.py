@@ -16,6 +16,7 @@ from app.services.scheduler import start_scheduler, shutdown_scheduler
 from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
 from sqlalchemy.exc import SQLAlchemyError
+from datetime import datetime
 import logging
 
 setup_logging()
@@ -79,35 +80,65 @@ async def health():
     from app.core.database import SessionLocal
     from app.core.redis_client import redis_client
     from app.core.minio_client import minio_client
+    from sqlalchemy.exc import SQLAlchemyError
+    import redis.exceptions as redis_exceptions
+    from minio.error import S3Error
     
     checks = {
-        "database": False,
-        "redis": False,
-        "minio": False
+        "database": {"status": False, "error": None},
+        "redis": {"status": False, "error": None},
+        "minio": {"status": False, "error": None}
     }
     
+    db = None
     try:
         db = SessionLocal()
         db.execute("SELECT 1")
-        db.close()
-        checks["database"] = True
-    except:
-        pass
+        checks["database"]["status"] = True
+    except SQLAlchemyError as e:
+        logger.error(f"Database health check failed: {e}")
+        checks["database"]["error"] = str(e)
+    except Exception as e:
+        logger.error(f"Unexpected error in database health check: {e}")
+        checks["database"]["error"] = f"Unexpected error: {str(e)}"
+    finally:
+        if db:
+            try:
+                db.close()
+            except:
+                pass
     
     try:
         redis_client.client.ping()
-        checks["redis"] = True
-    except:
-        pass
+        checks["redis"]["status"] = True
+    except redis_exceptions.ConnectionError as e:
+        logger.error(f"Redis connection error: {e}")
+        checks["redis"]["error"] = f"Connection error: {str(e)}"
+    except redis_exceptions.TimeoutError as e:
+        logger.error(f"Redis timeout error: {e}")
+        checks["redis"]["error"] = f"Timeout error: {str(e)}"
+    except Exception as e:
+        logger.error(f"Unexpected error in Redis health check: {e}")
+        checks["redis"]["error"] = f"Unexpected error: {str(e)}"
     
     try:
         minio_client.client.bucket_exists(settings.MINIO_BUCKET)
-        checks["minio"] = True
-    except:
-        pass
+        checks["minio"]["status"] = True
+    except S3Error as e:
+        logger.error(f"MinIO S3 error: {e}")
+        checks["minio"]["error"] = f"S3 error: {str(e)}"
+    except Exception as e:
+        logger.error(f"Unexpected error in MinIO health check: {e}")
+        checks["minio"]["error"] = f"Unexpected error: {str(e)}"
     
-    status = "healthy" if all(checks.values()) else "unhealthy"
-    return {"status": status, "checks": checks}
+    all_healthy = all(check["status"] for check in checks.values())
+    status = "healthy" if all_healthy else "unhealthy"
+    
+    return {
+        "status": status,
+        "checks": checks,
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 @app.get("/metrics")
 async def metrics():

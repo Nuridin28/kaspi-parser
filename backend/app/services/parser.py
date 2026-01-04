@@ -1,7 +1,17 @@
 import re
 import httpx
 from typing import Dict, List, Optional
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    retry_if_result,
+    RetryError
+)
+import logging
 
+logger = logging.getLogger(__name__)
 
 KASPI_API_URL = "https://kaspi.kz/yml/offer-view/offers/{product_id}"
 
@@ -41,6 +51,49 @@ class KaspiAPIParser:
         
         raise ValueError(f"Cannot extract product id from URL: {url}")
 
+    async def _make_request(self, product_id: str, headers: Dict, payload: Dict) -> Dict:
+        async with httpx.AsyncClient(
+            timeout=self.timeout,
+            proxies=self.proxy,
+            http2=True,
+            follow_redirects=True,
+            cookies={},
+        ) as client:
+            try:
+                init_response = await client.get(
+                    "https://kaspi.kz",
+                    headers={
+                        "User-Agent": headers["User-Agent"],
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    },
+                    timeout=self.timeout,
+                )
+                if "kaspi.storefront.cookie.city" not in client.cookies:
+                    client.cookies.set("kaspi.storefront.cookie.city", self.city_id, domain="kaspi.kz")
+            except Exception as e:
+                logger.warning(f"Could not initialize session: {e}")
+            
+            response = await client.post(
+                KASPI_API_URL.format(product_id=product_id),
+                headers=headers,
+                json=payload,
+            )
+
+            response.raise_for_status()
+            return response.json()
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((
+            httpx.TimeoutException,
+            httpx.NetworkError,
+            httpx.ConnectError,
+            httpx.ReadError,
+            httpx.HTTPStatusError
+        )),
+        reraise=True
+    )
     async def parse_product(self, product_url: str) -> Dict:
         product_id = self.extract_product_id(product_url)
 
@@ -84,36 +137,26 @@ class KaspiAPIParser:
             "installationId": "-1",
         }
 
-        async with httpx.AsyncClient(
-            timeout=self.timeout,
-            proxies=self.proxy,
-            http2=True,
-            follow_redirects=True,
-            cookies={},
-        ) as client:
-            # Initialize session to get cookies
-            try:
-                init_response = await client.get(
-                    "https://kaspi.kz",
-                    headers={
-                        "User-Agent": headers["User-Agent"],
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    },
-                    timeout=self.timeout,
-                )
-                if "kaspi.storefront.cookie.city" not in client.cookies:
-                    client.cookies.set("kaspi.storefront.cookie.city", self.city_id, domain="kaspi.kz")
-            except Exception as e:
-                print(f"Warning: Could not initialize session: {e}")
-            
-            response = await client.post(
-                KASPI_API_URL.format(product_id=product_id),
-                headers=headers,
-                json=payload,
-            )
-
-            response.raise_for_status()
-            data = response.json()
+        try:
+            data = await self._make_request(product_id, headers, payload)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 400:
+                logger.error(f"HTTP 400 for product {product_id}: {e.response.text}")
+                raise ValueError(f"Invalid request for product {product_id}: {e.response.text}")
+            elif e.response.status_code == 404:
+                logger.error(f"Product {product_id} not found")
+                raise ValueError(f"Product {product_id} not found")
+            elif e.response.status_code >= 500:
+                logger.warning(f"Server error {e.response.status_code} for product {product_id}, will retry")
+                raise
+            else:
+                raise
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError, httpx.ReadError) as e:
+            logger.warning(f"Network error for product {product_id}: {e}, will retry")
+            raise
+        except RetryError as e:
+            logger.error(f"Failed to parse product {product_id} after retries: {e.last_attempt.exception()}")
+            raise e.last_attempt.exception()
 
         return self._normalize_response(product_id, data)
 
