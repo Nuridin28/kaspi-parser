@@ -6,9 +6,9 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { productsApi, analyticsApi, reportsApi, type Product, type PositionEstimate } from '@/lib/api'
 import { formatPrice } from '@/lib/utils'
-import { Loader2, Download, TrendingUp, TrendingDown, AlertTriangle, Brain, BarChart3 } from 'lucide-react'
+import { Loader2, Download, TrendingUp, TrendingDown, AlertTriangle, Brain, BarChart3, Target, DollarSign, TrendingDown as TrendingDownIcon, Zap, Shield, AlertCircle, CheckCircle2, Lightbulb } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
 export default function Analytics() {
   const [searchParams] = useSearchParams()
@@ -25,7 +25,6 @@ export default function Analytics() {
   const [scenarioPrice, setScenarioPrice] = useState('')
   const [scenarioAnalysis, setScenarioAnalysis] = useState<any>(null)
   const [priceHistory, setPriceHistory] = useState<any[]>([])
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const [comparisonDate1, setComparisonDate1] = useState('')
   const [comparisonDate2, setComparisonDate2] = useState('')
   const [comparisonData, setComparisonData] = useState<any>(null)
@@ -65,7 +64,6 @@ export default function Analytics() {
 
   const loadPriceHistory = async (productId: number) => {
     try {
-      setIsLoadingHistory(true)
       const endDate = new Date()
       const startDate = new Date()
       startDate.setDate(startDate.getDate() - 30)
@@ -78,8 +76,6 @@ export default function Analytics() {
       setPriceHistory(history)
     } catch (error) {
       console.error('Failed to load price history:', error)
-    } finally {
-      setIsLoadingHistory(false)
     }
   }
 
@@ -225,6 +221,116 @@ export default function Analytics() {
       <div className={cn("flex items-center gap-1", color)}>
         <Icon className="h-4 w-4" />
         <span>{value > 0 ? '+' : ''}{value.toFixed(2)}</span>
+      </div>
+    )
+  }
+
+  const formatAIInsights = (text: string) => {
+    if (!text) return null
+
+    const sections = text.split(/(?=### \d+\.)/).filter(s => s.trim())
+    
+    const insightIcons: Record<string, any> = {
+      'sweet spot': Target,
+      'цено': DollarSign,
+      'дешевле': TrendingDownIcon,
+      'входить': Zap,
+      'выиграть': Shield,
+      'контролирует': AlertCircle,
+      'ломается': AlertTriangle,
+      'рекомендации': Lightbulb,
+    }
+
+    const getIconForSection = (title: string) => {
+      const lowerTitle = title.toLowerCase()
+      for (const [key, icon] of Object.entries(insightIcons)) {
+        if (lowerTitle.includes(key)) return icon
+      }
+      return Lightbulb
+    }
+
+    return (
+      <div className="space-y-6">
+        {sections.map((section, idx) => {
+          const trimmed = section.trim()
+          if (!trimmed) return null
+
+          const headerMatch = trimmed.match(/^###\s+(\d+)\.\s+(.+?)(?=\n|$)/)
+          if (!headerMatch) return null
+
+          const [, number, title] = headerMatch
+          let content = trimmed.replace(/^###\s+\d+\.\s+.+?\n?/, '').trim()
+          
+          const listLines = content.split('\n').filter(l => l.trim().match(/^[-•]\s+/))
+          let listItems: string[] = []
+          if (listLines.length > 0) {
+            const listStart = content.indexOf(listLines[0])
+            if (listStart >= 0) {
+              listItems = listLines.map(item => item.replace(/^[-•]\s+/, '').trim())
+              content = content.substring(0, listStart).trim()
+            }
+          }
+
+          const paragraphs = content
+            .split(/\n\s*\n/)
+            .filter(p => p.trim() && !p.trim().match(/^###/))
+            .map(p => p.trim().replace(/\n/g, ' '))
+
+          const Icon = getIconForSection(title)
+
+          return (
+            <Card key={idx} className="border-l-4 border-l-primary shadow-sm hover:shadow-md transition-shadow">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-start gap-3 text-xl">
+                  <div className="flex-shrink-0 p-2 rounded-lg bg-primary/10">
+                    <Icon className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold">
+                        {number}
+                      </span>
+                      <span className="font-semibold">{title}</span>
+                    </div>
+                  </div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {paragraphs.map((paragraph, pIdx) => (
+                  <p key={pIdx} className="text-muted-foreground leading-relaxed text-base">
+                    {paragraph}
+                  </p>
+                ))}
+                
+                {listItems.length > 0 && (
+                  <div className="space-y-3 pt-2 border-t">
+                    {listItems.map((item, itemIdx) => {
+                      const boldMatch = item.match(/^\*\*(.+?)\*\*:\s*(.+)$/)
+                      if (boldMatch) {
+                        const [, boldText, restText] = boldMatch
+                        return (
+                          <div key={itemIdx} className="flex gap-3">
+                            <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+                            <div>
+                              <span className="font-semibold text-foreground">{boldText}:</span>
+                              <span className="text-muted-foreground"> {restText}</span>
+                            </div>
+                          </div>
+                        )
+                      }
+                      return (
+                        <div key={itemIdx} className="flex gap-3">
+                          <div className="h-1.5 w-1.5 rounded-full bg-primary mt-2 flex-shrink-0" />
+                          <p className="text-muted-foreground">{item}</p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )
+        })}
       </div>
     )
   }
@@ -670,19 +776,22 @@ export default function Analytics() {
               )}
 
               {advancedAnalytics.ai_insights && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Brain className="h-5 w-5" />
-                      AI-Генерированные инсайты
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="prose dark:prose-invert max-w-none whitespace-pre-wrap">
-                      {advancedAnalytics.ai_insights}
-                    </div>
-                  </CardContent>
-                </Card>
+                <div className="space-y-4">
+                  <Card className="bg-gradient-to-r from-primary/5 to-primary/10 border-primary/20">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-2xl">
+                        <div className="p-2 rounded-lg bg-primary/20">
+                          <Brain className="h-6 w-6 text-primary" />
+                        </div>
+                        AI-Генерированные инсайты
+                      </CardTitle>
+                      <CardDescription className="text-base">
+                        Стратегические рекомендации на основе анализа рынка
+                      </CardDescription>
+                    </CardHeader>
+                  </Card>
+                  {formatAIInsights(advancedAnalytics.ai_insights)}
+                </div>
               )}
             </div>
           )}
