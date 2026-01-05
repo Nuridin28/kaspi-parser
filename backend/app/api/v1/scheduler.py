@@ -54,9 +54,9 @@ async def update_scheduler_config(
     if config_update.interval_minutes is not None:
         config.interval_minutes = config_update.interval_minutes
     if config_update.cron_hour is not None:
-        config.cron_hour = config_update.cron_hour
+        config.cron_hour = min(max(0, config_update.cron_hour), 23)
     if config_update.cron_minute is not None:
-        config.cron_minute = config_update.cron_minute
+        config.cron_minute = min(max(0, config_update.cron_minute), 59)
     
     config.updated_at = datetime.utcnow()
     db.commit()
@@ -111,4 +111,11 @@ async def get_next_run_time(job_id: str):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/analytics/aggregate-now")
+async def aggregate_analytics_now(db: Session = Depends(get_db)):
+    from app.services.scheduler import daily_analytics_aggregation
+    await daily_analytics_aggregation()
+    return {"message": "Analytics aggregation completed"}
 

@@ -20,9 +20,22 @@ class AnalyticsResponse(BaseModel):
     median_price: Optional[float]
     price_std: Optional[float]
     
+    offers_count: Optional[int]
     sellers_count: Optional[int]
     top_sellers_count: Optional[int]
     estimated_total_sellers: Optional[int]
+    
+    price_position_1: Optional[float]
+    price_position_3: Optional[float]
+    price_position_5: Optional[float]
+    price_position_10: Optional[float]
+    
+    avg_seller_rating: Optional[float]
+    in_stock_count: Optional[int]
+    
+    delta_price: Optional[float]
+    delta_percent: Optional[float]
+    sellers_delta: Optional[int]
     
     price_buckets: Optional[dict]
     

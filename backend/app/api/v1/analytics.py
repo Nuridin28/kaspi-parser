@@ -100,11 +100,50 @@ async def get_analytics(
         offers_data = redis_client.get_product_offers(str(product_id))
         if not offers_data:
             offers_data = [
-                {"price": o.price} for o in product.offers
+                {
+                    "price": o.price,
+                    "position": o.position,
+                    "in_stock": o.in_stock,
+                    "seller_rating": o.seller.rating if o.seller else None,
+                    "seller_name": o.seller.name if o.seller else ""
+                } for o in product.offers
             ]
+        
+        if not offers_data:
+            raise HTTPException(status_code=404, detail="No offers data available")
         
         stats = AnalyticsService.calculate_statistics(offers_data)
         buckets = redis_client.get_price_buckets(str(product_id))
+        
+        sorted_offers = sorted([o for o in offers_data if o.get("price")], key=lambda x: x.get("price", 0))
+        
+        price_pos_1 = sorted_offers[0]["price"] if sorted_offers else None
+        price_pos_3 = sorted_offers[2]["price"] if len(sorted_offers) > 2 else None
+        price_pos_5 = sorted_offers[4]["price"] if len(sorted_offers) > 4 else None
+        price_pos_10 = sorted_offers[9]["price"] if len(sorted_offers) > 9 else None
+        
+        ratings = [o.get("seller_rating") for o in offers_data if o.get("seller_rating")]
+        avg_rating = sum(ratings) / len(ratings) if ratings else None
+        
+        in_stock_count = sum(1 for o in offers_data if o.get("in_stock", True))
+        
+        previous_day = db.query(AnalyticsDaily).filter(
+            AnalyticsDaily.product_id == product_id,
+            AnalyticsDaily.date < target_date
+        ).order_by(AnalyticsDaily.date.desc()).first()
+        
+        delta_price = None
+        delta_percent = None
+        sellers_delta = 0
+        
+        if previous_day and previous_day.avg_price and stats["avg_price"]:
+            delta_price = stats["avg_price"] - previous_day.avg_price
+            delta_percent = (delta_price / previous_day.avg_price * 100) if previous_day.avg_price > 0 else 0
+        
+        unique_sellers = len(set(o.get("seller_name", "") for o in offers_data if o.get("seller_name")))
+        current_sellers = buckets.get("total_sellers_count") if buckets else (unique_sellers if unique_sellers > 0 else len(offers_data))
+        if previous_day and previous_day.sellers_count:
+            sellers_delta = current_sellers - previous_day.sellers_count
         
         analytics = AnalyticsDaily(
             product_id=product_id,
@@ -113,10 +152,20 @@ async def get_analytics(
             max_price=stats["max_price"],
             avg_price=stats["avg_price"],
             median_price=stats["median_price"],
-            price_std=stats["price_std"],
-                        sellers_count=buckets.get("total_sellers_count") if buckets else None,
-                        top_sellers_count=buckets.get("top_sellers_count") if buckets else len(offers_data),
-                        estimated_total_sellers=buckets.get("total_sellers_count") if buckets else (len(offers_data) * 4)
+            price_std=stats["price_std"] or 0,
+            offers_count=len(offers_data),
+            sellers_count=current_sellers,
+            top_sellers_count=buckets.get("top_sellers_count") if buckets else len(offers_data),
+            estimated_total_sellers=buckets.get("total_sellers_count") if buckets else (len(offers_data) * 4),
+            price_position_1=price_pos_1,
+            price_position_3=price_pos_3,
+            price_position_5=price_pos_5,
+            price_position_10=price_pos_10,
+            avg_seller_rating=avg_rating,
+            in_stock_count=in_stock_count,
+            delta_price=delta_price,
+            delta_percent=delta_percent,
+            sellers_delta=sellers_delta
         )
         db.add(analytics)
         db.commit()
