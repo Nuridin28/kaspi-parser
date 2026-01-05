@@ -72,7 +72,7 @@ class ConnectionManager:
         for connection in all_connections:
             try:
                 await connection.send_json(message)
-            except:
+            except Exception:
                 disconnected.add(connection)
         
         for conn in disconnected:
@@ -101,16 +101,21 @@ async def websocket_endpoint(websocket: WebSocket, job_id: int):
 
 @router.websocket("/ws/products")
 async def products_websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
+    await manager.connect_product(websocket, 0)
     try:
         while True:
             await asyncio.sleep(5)
-            await websocket.send_json({
-                "type": "ping",
-                "message": "keep_alive"
-            })
+            try:
+                await websocket.send_json({
+                    "type": "ping",
+                    "message": "keep_alive"
+                })
+            except Exception:
+                break
     except WebSocketDisconnect:
         pass
+    finally:
+        manager.disconnect_product(websocket, 0)
 
 async def notify_job_status(job_id: int, status: str, message: str = None):
     await manager.broadcast_to_job(job_id, {
@@ -125,4 +130,12 @@ async def notify_product_updated(product_id: int):
         "type": "product_updated",
         "product_id": product_id,
         "message": "Product data has been updated"
+    })
+
+async def notify_job_completed(job_id: int, status: str):
+    await manager.broadcast_to_all({
+        "type": "job_completed",
+        "job_id": job_id,
+        "status": status,
+        "message": f"Job {job_id} {status}"
     })

@@ -155,8 +155,9 @@ class ProductService:
                     job.kaspi_product_id = kaspi_id
                     job.completed_at = datetime.utcnow()
                     db.commit()
-                    from app.api.v1.websocket import notify_job_status, notify_product_updated
+                    from app.api.v1.websocket import notify_job_status, notify_product_updated, notify_job_completed
                     await notify_job_status(job_id, "completed", "Парсинг завершен успешно")
+                    await notify_job_completed(job_id, "completed")
                     await notify_product_updated(product.id)
             
             return product
@@ -170,8 +171,9 @@ class ProductService:
                     job.error_message = str(e)
                     job.completed_at = datetime.utcnow()
                     db.commit()
-                    from app.api.v1.websocket import notify_job_status
+                    from app.api.v1.websocket import notify_job_status, notify_job_completed
                     await notify_job_status(job_id, "failed", f"Ошибка: {str(e)}")
+                    await notify_job_completed(job_id, "failed")
             raise
         finally:
             if should_close:

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useProducts, useUpdateProduct, useDeleteProduct, useParseProduct } from '@/hooks/useProducts'
 import { formatPrice, cn } from '@/lib/utils'
@@ -28,7 +28,6 @@ import {
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useWebSocket } from '@/hooks/useWebSocket'
-import { useProductsWebSocket } from '@/hooks/useProductsWebSocket'
 
 export default function Products() {
   const queryClient = useQueryClient()
@@ -41,20 +40,110 @@ export default function Products() {
   const [editingProduct, setEditingProduct] = useState<any>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
   const [editForm, setEditForm] = useState({ name: '', category: '' })
-  const [activeParseJobId, setActiveParseJobId] = useState<number | null>(null)
+  const [activeParseJobs, setActiveParseJobs] = useState<Map<number, number>>(new Map())
 
-  useProductsWebSocket()
+  useEffect(() => {
+    let ws: WebSocket | null = null
+    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null
+    let isMounted = true
 
-  const handleWebSocketMessage = (message: any) => {
+    const connectWebSocket = () => {
+      if (!isMounted) return
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/products`
+      
+      try {
+        ws = new WebSocket(wsUrl)
+
+        ws.onopen = () => {
+          console.log('Products WebSocket connected')
+        }
+
+        ws.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data)
+            
+            if (message.type === 'ping') {
+              return
+            }
+            
+            if (message.type === 'product_updated') {
+              const productId = message.product_id
+              setActiveParseJobs(prev => {
+                const newMap = new Map(prev)
+                newMap.delete(productId)
+                return newMap
+              })
+              queryClient.invalidateQueries({ queryKey: ['products'] })
+            } else if (message.type === 'job_completed') {
+              const jobId = message.job_id
+              setActiveParseJobs(prev => {
+                const newMap = new Map(prev)
+                for (const [productId, currentJobId] of newMap.entries()) {
+                  if (currentJobId === jobId) {
+                    newMap.delete(productId)
+                    break
+                  }
+                }
+                return newMap
+              })
+              queryClient.invalidateQueries({ queryKey: ['products'] })
+              queryClient.invalidateQueries({ queryKey: ['jobs'] })
+            }
+          } catch (error) {
+            console.error('Failed to parse WebSocket message:', error)
+          }
+        }
+
+        ws.onerror = (error) => {
+          console.error('Products WebSocket error:', error)
+        }
+
+        ws.onclose = (event) => {
+          console.log('Products WebSocket disconnected', event.code, event.reason)
+          if (isMounted && event.code !== 1000) {
+            reconnectTimeout = setTimeout(() => {
+              console.log('Attempting to reconnect WebSocket...')
+              connectWebSocket()
+            }, 3000)
+          }
+        }
+      } catch (error) {
+        console.error('Failed to create WebSocket:', error)
+        if (isMounted) {
+          reconnectTimeout = setTimeout(() => {
+            connectWebSocket()
+          }, 3000)
+        }
+      }
+    }
+
+    connectWebSocket()
+
+    return () => {
+      isMounted = false
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout)
+      }
+      if (ws) {
+        ws.close(1000, 'Component unmounted')
+      }
+    }
+  }, [queryClient])
+
+  const handleWebSocketMessage = (message: any, productId: number) => {
     if (message.type === 'status_update') {
       if (message.status === 'completed' || message.status === 'failed') {
+        setActiveParseJobs(prev => {
+          const newMap = new Map(prev)
+          newMap.delete(productId)
+          return newMap
+        })
         queryClient.invalidateQueries({ queryKey: ['products'] })
-        setActiveParseJobId(null)
       }
     }
   }
-
-  useWebSocket(activeParseJobId, handleWebSocketMessage)
 
   const handleEdit = (product: any) => {
     setEditingProduct(product)
@@ -100,23 +189,15 @@ export default function Products() {
     }
   }
 
-  const formatLastParsed = (lastParsedAt: string | null) => {
-    if (!lastParsedAt) return 'Никогда'
-    const date = new Date(lastParsedAt)
-    return date.toLocaleString('ru-RU', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-  }
-
   const handleParse = async (productId: number) => {
     try {
       const job = await parseProduct.mutateAsync(productId)
       if (job?.id) {
-        setActiveParseJobId(job.id)
+        setActiveParseJobs(prev => {
+          const newMap = new Map(prev)
+          newMap.set(productId, job.id)
+          return newMap
+        })
       }
     } catch (error) {
       console.error('Failed to parse product:', error)
@@ -173,127 +254,23 @@ export default function Products() {
             const minPrice = product.offers && product.offers.length > 0 
               ? Math.min(...product.offers.map((o: any) => o.price))
               : null
-            const isParsing = activeParseJobId !== null
+            const jobId = activeParseJobs.get(product.id)
+            const isParsing = jobId !== undefined
 
             return (
-              <Card 
+              <ProductCard
                 key={product.id}
-                className="group hover:shadow-lg transition-all duration-300"
-              >
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <CardTitle className="line-clamp-2 text-lg group-hover:text-primary transition-colors">
-                        {product.name || `Товар #${product.kaspi_id}`}
-                      </CardTitle>
-                      {product.category && (
-                        <CardDescription className="mt-1 line-clamp-1">
-                          {product.category}
-                        </CardDescription>
-                      )}
-                    </div>
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleEdit(product)}
-                        className="h-8 w-8"
-                      >
-                        <Edit2 className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setDeleteConfirm(product.id)}
-                        className="h-8 w-8 text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <FreshnessIcon className={cn("h-4 w-4", freshness.color)} />
-                      <span className={cn("text-sm", freshness.color)}>
-                        {freshness.text}
-                      </span>
-                    </div>
-                    {minPrice && (
-                      <div className="flex items-center gap-1 text-lg font-bold">
-                        <TrendingUp className="h-4 w-4 text-green-600" />
-                        {formatPrice(minPrice)}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <div className="flex justify-between">
-                      <span>Kaspi ID:</span>
-                      <span className="font-mono">{product.kaspi_id}</span>
-                    </div>
-                    {product.last_parsed_at && (
-                      <div className="flex justify-between">
-                        <span>Обновлен:</span>
-                        <span>{formatLastParsed(product.last_parsed_at)}</span>
-                      </div>
-                    )}
-                    {(product.total_offers_count !== null && product.total_offers_count !== undefined) || (product.offers && product.offers.length > 0) ? (
-                      <div className="flex justify-between">
-                        <span>Предложений:</span>
-                        <span>{product.total_offers_count ?? product.offers.length}</span>
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="flex gap-2 pt-2 items-center">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex-1"
-                      onClick={() => handleParse(product.id)}
-                      disabled={isParsing}
-                    >
-                      {isParsing ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Парсинг...
-                        </>
-                      ) : (
-                        <>
-                          <RefreshCw className="h-4 w-4 mr-2" />
-                          Обновить
-                        </>
-                      )}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      asChild
-                      className="h-9"
-                    >
-                      <Link to={`/analytics?product=${product.id}`}>
-                        Аналитика
-                      </Link>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      asChild
-                      className="h-9 w-9 flex items-center justify-center"
-                    >
-                      <a
-                        href={`https://kaspi.kz/shop/p/${product.kaspi_id}/?c=750000000`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                      </a>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+                product={product}
+                freshness={freshness}
+                FreshnessIcon={FreshnessIcon}
+                minPrice={minPrice}
+                isParsing={isParsing}
+                jobId={jobId}
+                onParse={() => handleParse(product.id)}
+                onEdit={() => handleEdit(product)}
+                onDelete={() => setDeleteConfirm(product.id)}
+                onWebSocketMessage={(message: any) => handleWebSocketMessage(message, product.id)}
+              />
             )
           })}
         </div>
@@ -375,5 +352,152 @@ export default function Products() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+function ProductCard({ 
+  product, 
+  freshness, 
+  FreshnessIcon, 
+  minPrice, 
+  isParsing, 
+  jobId,
+  onParse,
+  onEdit,
+  onDelete,
+  onWebSocketMessage
+}: any) {
+  useWebSocket(jobId || null, onWebSocketMessage)
+
+  const formatLastParsed = (lastParsedAt: string | null) => {
+    if (!lastParsedAt) return 'Никогда'
+    const date = new Date(lastParsedAt)
+    return date.toLocaleString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
+
+  return (
+    <Card 
+      className="group hover:shadow-lg transition-all duration-300"
+    >
+      <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <CardTitle className="line-clamp-2 text-lg group-hover:text-primary transition-colors">
+                        {product.name || `Товар #${product.kaspi_id}`}
+                      </CardTitle>
+                      {product.category && (
+                        <CardDescription className="mt-1 line-clamp-1">
+                          {product.category}
+                        </CardDescription>
+                      )}
+                    </div>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={onEdit}
+                        className="h-8 w-8"
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={onDelete}
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <FreshnessIcon className={cn("h-4 w-4", freshness.color)} />
+                      <span className={cn("text-sm", freshness.color)}>
+                        {freshness.text}
+                      </span>
+                    </div>
+                    {minPrice && (
+                      <div className="flex items-center gap-1 text-lg font-bold">
+                        <TrendingUp className="h-4 w-4 text-green-600" />
+                        {formatPrice(minPrice)}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <div className="flex justify-between">
+                      <span>Kaspi ID:</span>
+                      <span className="font-mono">{product.kaspi_id}</span>
+                    </div>
+                    {product.last_parsed_at && (
+                      <div className="flex justify-between">
+                        <span>Обновлен:</span>
+                        <span>{formatLastParsed(product.last_parsed_at)}</span>
+                      </div>
+                    )}
+                    {(product.total_offers_count !== null && product.total_offers_count !== undefined) || (product.offers && product.offers.length > 0) ? (
+                      <div className="flex justify-between">
+                        <span>Предложений:</span>
+                        <span>{product.total_offers_count ?? product.offers.length}</span>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="flex gap-2 pt-2 items-center">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                      onClick={onParse}
+                      disabled={isParsing}
+                    >
+                      {isParsing ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Парсинг...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                          Обновить
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      asChild
+                      className="h-9"
+                    >
+                      <Link to={`/analytics?product=${product.id}`}>
+                        Аналитика
+                      </Link>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      asChild
+                      className="h-9 w-9 flex items-center justify-center"
+                    >
+                      <a
+                        href={`https://kaspi.kz/shop/p/${product.kaspi_id}/?c=750000000`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
   )
 }

@@ -24,15 +24,22 @@ export function useProductsWebSocket() {
         if (message.type === 'product_updated') {
           queryClient.invalidateQueries({ queryKey: ['products'] })
           queryClient.invalidateQueries({ queryKey: ['product', message.product_id] })
+          queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] })
+          queryClient.invalidateQueries({ queryKey: ['jobs'] })
           toast.success('Товар обновлен')
         } else if (message.type === 'products_updated') {
           queryClient.invalidateQueries({ queryKey: ['products'] })
+          queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] })
+          queryClient.invalidateQueries({ queryKey: ['jobs'] })
           if (message.product_ids && message.product_ids.length > 0) {
             message.product_ids.forEach((id: number) => {
               queryClient.invalidateQueries({ queryKey: ['product', id] })
             })
           }
           toast.success(message.message || `Обновлено ${message.product_ids?.length || 0} товаров`)
+        } else if (message.type === 'job_completed') {
+          queryClient.invalidateQueries({ queryKey: ['jobs'] })
+          queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] })
         }
       } catch (error) {
         console.error('Failed to parse WebSocket message:', error)
