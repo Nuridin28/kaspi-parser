@@ -239,12 +239,12 @@ export default function Products() {
                         <span>{formatLastParsed(product.last_parsed_at)}</span>
                       </div>
                     )}
-                    {product.offers && product.offers.length > 0 && (
+                    {(product.total_offers_count !== null && product.total_offers_count !== undefined) || (product.offers && product.offers.length > 0) ? (
                       <div className="flex justify-between">
                         <span>Предложений:</span>
-                        <span>{product.offers.length}</span>
+                        <span>{product.total_offers_count ?? product.offers.length}</span>
                       </div>
-                    )}
+                    ) : null}
                   </div>
 
                   <div className="flex gap-2 pt-2 items-center">

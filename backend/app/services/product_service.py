@@ -29,9 +29,8 @@ class ProductService:
                     from app.api.v1.websocket import notify_job_status
                     await notify_job_status(job_id, "parsing", "Парсинг начат")
             
-            from app.core.config import settings
             parser = KaspiAPIParser(
-                top_n=settings.TOP_SELLERS_COUNT
+                top_n=None
             )
             data = await parser.parse_product(url)
             
@@ -67,6 +66,16 @@ class ProductService:
                 db.add(price_history)
             
             db.query(Offer).filter(Offer.product_id == product.id).delete()
+            
+            offers_for_redis = [
+                {
+                    "price": o["price"],
+                    "seller_name": o["seller_name"],
+                    "position": o.get("position")
+                }
+                for o in data["offers"]
+            ]
+            redis_client.set_product_offers(str(product.id), offers_for_redis, ttl=3600)
             
             top_offers = data["offers"][:10]
             

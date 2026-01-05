@@ -16,6 +16,7 @@ export interface Product {
   created_at: string
   updated_at: string | null
   last_parsed_at: string | null
+  total_offers_count: number | null
 }
 
 export interface Offer {

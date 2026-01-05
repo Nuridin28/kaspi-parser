@@ -764,7 +764,7 @@ export default function Analytics() {
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {selectedProduct.offers.map((offer, index) => (
+                {selectedProduct.offers.slice(0, 10).map((offer, index) => (
                   <div
                     key={index}
                     className="flex items-center justify-between p-3 border rounded-md"

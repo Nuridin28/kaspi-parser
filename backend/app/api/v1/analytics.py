@@ -20,29 +20,19 @@ router = APIRouter()
 async def estimate_position(
     product_id: int,
     user_price: float = Query(..., description="User price in KZT"),
+    force_refresh: bool = Query(False, description="Force refresh cache"),
     db: Session = Depends(get_db)
 ):
+    from app.services.position_service import PositionService
+    
     product = ProductService.get_product(db, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
-    offers_data = redis_client.get_product_offers(str(product_id))
-    
-    if not offers_data:
-        offers_data = [
-            {
-                "price": o.price,
-                "seller_name": o.seller.name,
-                "position": o.position
-            }
-            for o in product.offers
-        ]
-        redis_client.set_product_offers(str(product_id), offers_data)
-    
-    estimate = AnalyticsService.calculate_position_estimate(
-        str(product_id),
+    estimate = await PositionService.get_exact_position(
+        product.kaspi_id,
         user_price,
-        offers_data
+        force_refresh
     )
     
     return estimate

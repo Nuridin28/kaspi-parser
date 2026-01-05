@@ -81,7 +81,14 @@ async def list_products(
     db: Session = Depends(get_db)
 ):
     products = ProductService.list_products(db, skip=skip, limit=limit, search=search)
-    return products
+    result = []
+    for product in products:
+        offers_data = redis_client.get_product_offers(str(product.id))
+        total_count = len(offers_data) if offers_data else len(product.offers)
+        product_dict = ProductResponse.model_validate(product).model_dump()
+        product_dict["total_offers_count"] = total_count
+        result.append(ProductResponse(**product_dict))
+    return result
 
 
 @router.get("/{product_id}", response_model=ProductResponse)
@@ -92,7 +99,11 @@ async def get_product(
     product = ProductService.get_product(db, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    return product
+    offers_data = redis_client.get_product_offers(str(product_id))
+    total_count = len(offers_data) if offers_data else len(product.offers)
+    product_dict = ProductResponse.model_validate(product).model_dump()
+    product_dict["total_offers_count"] = total_count
+    return ProductResponse(**product_dict)
 
 
 @router.get("/kaspi/{kaspi_id}", response_model=ProductResponse)
@@ -103,7 +114,11 @@ async def get_product_by_kaspi_id(
     product = ProductService.get_product_by_kaspi_id(db, kaspi_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    return product
+    offers_data = redis_client.get_product_offers(str(product.id))
+    total_count = len(offers_data) if offers_data else len(product.offers)
+    product_dict = ProductResponse.model_validate(product).model_dump()
+    product_dict["total_offers_count"] = total_count
+    return ProductResponse(**product_dict)
 
 
 @router.put("/{product_id}", response_model=ProductResponse)
@@ -133,15 +148,19 @@ async def delete_product(
     product_id: int,
     db: Session = Depends(get_db)
 ):
+    from app.models.analytics import AnalyticsDaily
+    
     product = ProductService.get_product(db, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
+    db.query(AnalyticsDaily).filter(AnalyticsDaily.product_id == product_id).delete()
     db.delete(product)
     db.commit()
     
     redis_client.delete_key(f"product:{product_id}:offers")
     redis_client.delete_key(f"product:{product_id}:buckets")
+    redis_client.delete_key(f"product:{product_id}:all_prices")
     
     return None
 

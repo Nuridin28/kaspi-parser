@@ -43,10 +43,12 @@ class ProductResponse(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime]
     last_parsed_at: Optional[datetime] = None
+    total_offers_count: Optional[int] = None
     
     @model_validator(mode='after')
     def calculate_last_parsed(self):
         if self.offers and len(self.offers) > 0:
+            self.offers.sort(key=lambda x: (x.position if x.position is not None else 999999, x.price))
             last_parsed = max(offer.parsed_at for offer in self.offers)
             self.last_parsed_at = last_parsed
         return self

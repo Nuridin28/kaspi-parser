@@ -120,7 +120,6 @@ class KaspiAPIParser:
             "cityId": self.city_id,
             "id": str(product_id),
             "merchantUID": [],
-            "limit": self.top_n,
             "page": 0,
             "product": {
                 "brand": None,
@@ -136,6 +135,9 @@ class KaspiAPIParser:
             "zoneId": ["Magnum_ZONE1"],
             "installationId": "-1",
         }
+        
+        if self.top_n and self.top_n > 0:
+            payload["limit"] = self.top_n
 
         try:
             data = await self._make_request(product_id, headers, payload)
@@ -174,7 +176,7 @@ class KaspiAPIParser:
 
         offers: List[Dict] = []
 
-        for idx, offer in enumerate(offers_raw[: self.top_n]):
+        for idx, offer in enumerate(offers_raw):
             offers.append(
                 {
                     "position": idx + 1,
